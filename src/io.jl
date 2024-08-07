@@ -1,3 +1,5 @@
+const SimpleBitsType = Union{Type{Int16},Type{UInt16},Type{Int32},Type{UInt32},Type{Int64},Type{UInt64},Type{Int128},Type{UInt128},Type{Float16},Type{Float32},Type{Float64},Type{Complex{Int16}},Type{Complex{UInt16}},Type{Complex{Int32}},Type{Complex{UInt32}},Type{Complex{Int64}},Type{Complex{UInt64}},Type{Complex{Int128}},Type{Complex{UInt128}},Type{Complex{Float16}},Type{Complex{Float32}},Type{Complex{Float64}}}
+
 """
 TruncatedIO <: IO
 
@@ -14,6 +16,8 @@ bytes.
 Optional methods to implement that might be useful are:
 - `Base.reseteof(::AbstractTruncatedSource)::Nothing`: reset EOF status.
 - `Base.unsafe_read(::AbstractTruncatedSource, p::Ptr{UInt8}, n::UInt)::Nothing`: copy `n` bytes from the stream into memory pointed to by `p`.
+- `Base.seek(::TruncatedIO, n::Integer)` and `Base.seekend(::TruncatedIO)`: seek stream to position `n` or end of stream.
+- `Base.reset(::TruncatedIO)`: reset a marked stream to the saved position.
 """
 abstract type TruncatedIO <: IO end
 
@@ -25,13 +29,15 @@ Return the wrapped source.
 function unwrap end
 
 # unary functions
-for func in (:lock, :unlock, :isopen, :close, :closewrite, :flush, :position, :seekstart, :seekend, :mark, :unmark, :reset, :ismarked, :isreadable, :iswritable)
+for func in (:lock, :unlock, :isopen, :close, :closewrite, :flush, :position, :mark, :unmark, :reset, :ismarked, :isreadable, :iswritable, :seekend)
     @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
 end
 
 # n-ary functions
 Base.seek(s::TruncatedIO, n::Integer) = seek(unwrap(s), n)
+Base.skip(s::TruncatedIO, n::Integer) = skip(unwrap(s), n)
 Base.unsafe_read(s::TruncatedIO, p::Ptr{UInt8}, n::UInt) = unsafe_read(unwrap(s), p, n)
+Base.unsafe_write(s::TruncatedIO, p::Ptr{UInt8}, n::UInt) = unsafe_write(unwrap(s), p, n)
 
 function Base.read(s::TruncatedIO, ::Type{UInt8})
     r = Ref{UInt8}()
@@ -58,10 +64,47 @@ Base.bytesavailable(s::FixedLengthIO) = min(s.remaining, bytesavailable(unwrap(s
 
 Base.eof(s::FixedLengthIO) = eof(unwrap(s)) || s.remaining <= 0
 
+function Base.read(s::FixedLengthIO, T::SimpleBitsType)
+    available = bytesavailable(s)
+    nb = sizeof(T)
+    if available < nb
+        throw(EOFError())
+    end
+    x = read(unwrap(s), T)
+    return x
+end
+
 function Base.unsafe_read(s::FixedLengthIO, p::Ptr{UInt8}, n::UInt)
-    unsafe_read(unwrap(s), p, n)
-    s.remaining -= n
+    # note that the convention from IOBuffer is to read as much as possible first,
+    # then throw EOF if the requested read was beyond the number of bytes available.
+    available = bytesavailable(s)
+    to_read = min(available, n)
+    unsafe_read(unwrap(s), p, to_read)
+    s.remaining -= to_read
+    if to_read < n
+        throw(EOFError())
+    end
     return nothing
+end
+
+function Base.seek(s::FixedLengthIO, n::Integer)
+    pos = clamp(n, 0, s.length)
+    s.remaining = s.length - pos
+    return seek(unwrap(s), n)
+end
+
+Base.seekend(s::FixedLengthIO) = seek(s, s.length)
+
+function Base.skip(s::FixedLengthIO, n::Integer)
+    # negative numbers will add bytes back to bytesremaining
+    bytes = clamp(Int(n), s.remaining - s.length, s.remaining)
+    return seek(s, position(s) + bytes)
+end
+
+function Base.reset(s::FixedLengthIO)
+    pos = reset(unwrap(s))
+    seek(s, pos) # seeks the underlying stream as well, but that should be a noop
+    return pos
 end
 
 """
