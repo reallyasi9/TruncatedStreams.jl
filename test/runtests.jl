@@ -148,7 +148,7 @@ end
     skip(sio, -n)
     @test bytesavailable(sio) == n
     g = read(sio)
-    @test g == content[n+1:fixed_length]
+    @test g == content[fixed_length-n+1:fixed_length]
     @test eof(sio)
 
     # pass through mark, reset, and unmark
