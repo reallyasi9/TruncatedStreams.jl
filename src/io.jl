@@ -121,8 +121,11 @@ mutable struct SentinelIO{S <: IO} <: TruncatedIO
     wrapped::S
     sentinel::Vector{UInt8}
     failure_function::Vector{Int}
+
+    remaining::Int # cached number of bytes known to be good to read
     eof::Bool
     skip::Bool
+
 
     function SentinelIO(io::S, sentinel::AbstractVector{UInt8}) where {S <: IO}
         # Implements Knuth-Morris-Pratt failure function computation
@@ -147,62 +150,48 @@ mutable struct SentinelIO{S <: IO} <: TruncatedIO
         end
         t[pos] = cnd
 
-        new{S}(io, s, t, false, false)
+        new{S}(io, s, t, 0, false, false)
     end
 end
 
 unwrap(s::SentinelIO) = s.wrapped
 
-function Base.bytesavailable(s::SentinelIO)
-    if eof(s)
-        # already exhausted the stream
-        return 0
-    end
-
-    n = bytesavailable(unwrap(s))
-    if n < length(s.sentinel)
-        # only read up until we cannot determine sentinel status: don't refill buffers
-        return 0
-    end
+function _bytes_available_slowpath(io, sentinel, failure_function)
+    n_s = length(sentinel)
+    n_a = bytesavailable(io)
 
     # Implements Knuth-Morris-Pratt with extra logic to deal with the tail of the buffer
     # https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm
 
-    # make sure to keep marked status
-    previous_mark = ismarked(unwrap(s)) ? unmark(unwrap(s)) : -1
-    mark(s)
+    # make sure to save marked status
+    previous_mark = ismarked(io) ? unmark(io) : -1
+    mark(io)
+
     b_idx = 0
-    s_idx = firstindex(s.sentinel)
+    s_idx = firstindex(sentinel)
 
     try
         while true
-            if n + s_idx - 1 <= length(s.sentinel)
+            if n_a + s_idx - 1 <= n_s
                 # ran out of bytes to match against the sentinel
                 # can read up to the last known non-sentinel byte
                 return b_idx - s_idx + 1
             end
 
-            r = read(unwrap(s), UInt8)
-            n -= 1
+            r = read(io, UInt8)
+            n_a -= 1
 
-            if s.sentinel[s_idx] == r
-                # if this was a continuation from a previous EOF that was reset,
-                # pretend this was not a match and reset the skip flag
-                if s.skip && s_idx == firstindex(s.sentinel)
-                    s.skip = false
-                    s.eof = false
-                    continue
-                end
+            if sentinel[s_idx] == r
                 s_idx += 1
                 b_idx += 1
-                if s_idx == lastindex(s.sentinel) + 1
+                if s_idx == lastindex(sentinel) + 1
                     # sentinel found
                     # can read up until the byte before the sentinel
                     return b_idx - s_idx + 1
                 end
             else
                 # reset to closest matching byte found so far
-                s_idx = s.failure_function[s_idx]
+                s_idx = failure_function[s_idx]
                 if s_idx <= 0
                     # start over
                     b_idx += 1
@@ -211,15 +200,30 @@ function Base.bytesavailable(s::SentinelIO)
             end
         end
     finally
-        here = reset(s)
+        here = reset(io)
         if previous_mark >= 0
-            seek(unwrap(s), previous_mark)
-            mark(unwrap(s))
-            seek(unwrap(s), here)
+            seek(io, previous_mark)
+            mark(io)
+            seek(io, here)
         end
     end
 
     throw(ErrorException("unreachable tail"))
+end
+
+function Base.bytesavailable(s::SentinelIO)
+    if eof(s)
+        # already exhausted the stream
+        return 0
+    end
+
+    if s.remaining > 0
+        # used cached value
+        return s.remaining
+    end
+
+    s.remaining = _bytes_available_slowpath(unwrap(s), s.sentinel, s.failure_function)
+    return s.remaining
 end
 
 function Base.eof(s::SentinelIO)
