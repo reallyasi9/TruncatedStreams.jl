@@ -135,6 +135,11 @@ function Base.eof(s::SentinelIO)
         s.remaining = 0
         return true
     end
+    # trust the number of bytes remaining
+    # (if, for example, the sentinel was fake, then remaining bytes will tell us we can read past it)
+    if s.remaining > 0
+        return false
+    end
     r = _max_bytes_available(unwrap(s), s.sentinel, 1)
     if r == 1
         s.remaining = max(s.remaining, 1)
@@ -179,7 +184,10 @@ function _max_bytes_available(io, sentinel, n)
 end
 
 function Base.unsafe_read(s::SentinelIO, p::Ptr{UInt8}, n::UInt)
-    to_read = _max_bytes_available(unwrap(s), s.sentinel, n)
+    if n > s.remaining
+        s.remaining = _max_bytes_available(unwrap(s), s.sentinel, n)
+    end
+    to_read = min(n, s.remaining)
     unsafe_read(unwrap(s), p, to_read)
     s.remaining -= to_read
     if to_read < n

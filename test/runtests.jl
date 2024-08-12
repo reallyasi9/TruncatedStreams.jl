@@ -100,6 +100,9 @@ end
     fixed_length = 256
     content[fixed_length+1:fixed_length+sentinel_length] = sentinel
 
+    # add a second sentinel for reseteof test
+    content[fixed_length*2+sentinel_length+1:fixed_length*2+sentinel_length*2] = sentinel
+
     io = IOBuffer(content)
     sio = SentinelIO(io, sentinel)
     @test bytesavailable(sio) == fixed_length
@@ -175,6 +178,23 @@ end
     @test position(sio) == 0
     seekend(sio)
     @test position(sio) == fixed_length
+
+    # check reseteof and find next sentinel
+    @test eof(sio)
+    Base.reseteof(sio)
+    @test !eof(sio)
+    @test read(sio) == content[fixed_length+1:2*fixed_length + sentinel_length]
+    @test eof(sio)
+    # clear the second sentinel and read to end
+    Base.reseteof(sio)
+    @test !eof(sio)
+    @test read(sio) == content[2*fixed_length + sentinel_length + 1:end]
+    @test eof(sio)
+    # clearing the second sentinel should keep us at eof
+    Base.reseteof(sio)
+    @test eof(sio)
+    @test isempty(read(sio))
+
 end
 
 @run_package_tests verbose = true
