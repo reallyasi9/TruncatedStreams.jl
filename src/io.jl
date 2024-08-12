@@ -33,6 +33,13 @@ for func in (:lock, :unlock, :isopen, :close, :closewrite, :flush, :position, :m
     @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
 end
 
+# newer functions for half-duplex close
+@static if VERSION >= v"1.8"
+    for func in (:closewrite,)
+        @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
+    end
+end
+
 # n-ary functions
 Base.seek(s::TruncatedIO, n::Integer) = seek(unwrap(s), n)
 Base.skip(s::TruncatedIO, n::Integer) = skip(unwrap(s), n)
