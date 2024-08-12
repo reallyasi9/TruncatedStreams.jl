@@ -29,7 +29,7 @@ Return the wrapped source.
 function unwrap end
 
 # unary functions
-for func in (:lock, :unlock, :isopen, :close, :closewrite, :flush, :position, :mark, :unmark, :reset, :ismarked, :isreadable, :iswritable, :seekend)
+for func in (:lock, :unlock, :isopen, :close, :flush, :position, :mark, :unmark, :reset, :ismarked, :isreadable, :iswritable, :seekend)
     @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
 end
 
