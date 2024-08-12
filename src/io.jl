@@ -64,16 +64,6 @@ Base.bytesavailable(s::FixedLengthIO) = min(s.remaining, bytesavailable(unwrap(s
 
 Base.eof(s::FixedLengthIO) = eof(unwrap(s)) || s.remaining <= 0
 
-function Base.read(s::FixedLengthIO, T::SimpleBitsType)
-    available = bytesavailable(s)
-    nb = sizeof(T)
-    if available < nb
-        throw(EOFError())
-    end
-    x = read(unwrap(s), T)
-    return x
-end
-
 function Base.unsafe_read(s::FixedLengthIO, p::Ptr{UInt8}, n::UInt)
     # note that the convention from IOBuffer is to read as much as possible first,
     # then throw EOF if the requested read was beyond the number of bytes available.
@@ -120,167 +110,78 @@ The wrapped stream `io` must implement `mark` and `reset`.
 mutable struct SentinelIO{S <: IO} <: TruncatedIO
     wrapped::S
     sentinel::Vector{UInt8}
-    failure_function::Vector{Int}
 
     remaining::Int # cached number of bytes known to be good to read
-    eof::Bool
-    skip::Bool
-
 
     function SentinelIO(io::S, sentinel::AbstractVector{UInt8}) where {S <: IO}
-        # Implements Knuth-Morris-Pratt failure function computation
-        # https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm
-        s = Vector{UInt8}(sentinel)
-        t = ones(Int, length(s) + 1)
-        pos = firstindex(s) + 1
-        cnd = firstindex(t)
-
-        t[cnd] = 0
-        @inbounds while pos <= lastindex(s)
-            if s[pos] == s[cnd]
-                t[pos] = t[cnd]
-            else
-                t[pos] = cnd
-                while cnd > 0 && s[pos] != s[cnd]
-                    cnd = t[cnd]
-                end
-            end
-            pos += 1
-            cnd += 1
-        end
-        t[pos] = cnd
-
-        new{S}(io, s, t, 0, false, false)
+        new{S}(io, sentinel, 0)
     end
 end
 
 unwrap(s::SentinelIO) = s.wrapped
 
-function _bytes_available_slowpath(io, sentinel, failure_function)
-    n_s = length(sentinel)
-    n_a = bytesavailable(io)
-
-    # Implements Knuth-Morris-Pratt with extra logic to deal with the tail of the buffer
-    # https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm
-
-    # make sure to save marked status
-    previous_mark = ismarked(io) ? unmark(io) : -1
-    mark(io)
-
-    b_idx = 0
-    s_idx = firstindex(sentinel)
-
-    try
-        while true
-            if n_a + s_idx - 1 <= n_s
-                # ran out of bytes to match against the sentinel
-                # can read up to the last known non-sentinel byte
-                return b_idx - s_idx + 1
-            end
-
-            r = read(io, UInt8)
-            n_a -= 1
-
-            if sentinel[s_idx] == r
-                s_idx += 1
-                b_idx += 1
-                if s_idx == lastindex(sentinel) + 1
-                    # sentinel found
-                    # can read up until the byte before the sentinel
-                    return b_idx - s_idx + 1
-                end
-            else
-                # reset to closest matching byte found so far
-                s_idx = failure_function[s_idx]
-                if s_idx <= 0
-                    # start over
-                    b_idx += 1
-                    s_idx += 1
-                end
-            end
-        end
-    finally
-        here = reset(io)
-        if previous_mark >= 0
-            seek(io, previous_mark)
-            mark(io)
-            seek(io, here)
-        end
-    end
-
-    throw(ErrorException("unreachable tail"))
-end
-
 function Base.bytesavailable(s::SentinelIO)
-    if eof(s)
-        # already exhausted the stream
-        return 0
-    end
-
     if s.remaining > 0
         # used cached value
         return s.remaining
     end
 
-    s.remaining = _bytes_available_slowpath(unwrap(s), s.sentinel, s.failure_function)
+    s.remaining = _max_bytes_available(unwrap(s), s.sentinel, typemax(UInt) - length(s.sentinel))
     return s.remaining
 end
 
 function Base.eof(s::SentinelIO)
-    if s.eof
+    if eof(unwrap(s))
+        s.remaining = 0
         return true
     end
-    if eof(unwrap(s))
-        return s.eof = true
-    elseif s.skip
-        return s.eof = false
+    r = _max_bytes_available(unwrap(s), s.sentinel, 1)
+    if r == 1
+        s.remaining = max(s.remaining, 1)
+        return false
+    else
+        s.remaining = 0
+        return true
     end
-    # finding EOF is much simpler than counting bytes available
-    n = bytesavailable(unwrap(s))
-    if n < length(s.sentinel)
-        # not enough bytes to find sentinel
-        return s.eof = false
-    end
-    # make sure to keep marked status
-    previous_mark = ismarked(unwrap(s)) ? unmark(unwrap(s)) : -1
-    mark(s)
-    s_idx = firstindex(s.sentinel)
-    try
-        while true
-            r = read(unwrap(s), UInt8)
-            if s.sentinel[s_idx] != r
-                return s.eof = false
-            else 
-                s_idx += 1
-                if s_idx == lastindex(s.sentinel) + 1
-                    return s.eof = true
-                end
-            end
-        end
-    finally
-        here = reset(s)
-        if previous_mark >= 0
-            seek(unwrap(s), previous_mark)
-            mark(unwrap(s))
-            seek(unwrap(s), here)
-        end
-    end
-    return s.eof = false
 end
 
 function Base.reseteof(s::SentinelIO)
     Base.reseteof(unwrap(s))
-    s.skip = true
-    s.eof = false
+    s.remaining = max(s.remaining, length(s.sentinel))
     return nothing
 end
 
+function _max_bytes_available(io, sentinel, n)
+    previous_mark = -1
+    if ismarked(io)
+        pos = position(io)
+        previous_mark = reset(io)
+        seek(io, pos)
+    end
+    pos = mark(io)
+    try
+        check = read(io, n + length(sentinel) - 1)
+        f = findfirst(sentinel, check)
+        if isnothing(f)
+            return n
+        else
+            return first(f) - 1
+        end
+    finally
+        reset(io)
+        if previous_mark >= 0
+            seek(io, previous_mark)
+            mark(io)
+            seek(io, pos)
+        end
+    end
+    throw(ErrorException("unreachable tail"))
+end
+
 function Base.unsafe_read(s::SentinelIO, p::Ptr{UInt8}, n::UInt)
-    # note that the convention from IOBuffer is to read as much as possible first,
-    # then throw EOF if the requested read was beyond the number of bytes available.
-    available = bytesavailable(s)
-    to_read = min(available, n)
+    to_read = _max_bytes_available(unwrap(s), s.sentinel, n)
     unsafe_read(unwrap(s), p, to_read)
+    s.remaining -= to_read
     if to_read < n
         throw(EOFError())
     end
@@ -292,13 +193,12 @@ function Base.seek(s::SentinelIO, n::Integer)
     # seeking forwards is easier done as reading and dumping data.
     pos = max(n, 0)
     p = position(s)
-    if pos < p
-        # clear EOF if seeking backwards
-        s.eof = false
+    bytes = pos - p
+    if bytes < 0
+        s.remaining -= bytes
         return seek(unwrap(s), pos)
     end
     # drop remainder on the floor
-    bytes = pos - p
     read(s, bytes)
     return s
 end
