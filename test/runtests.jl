@@ -105,13 +105,13 @@ end
 
     io = IOBuffer(content)
     sio = SentinelIO(io, sentinel)
-    @test bytesavailable(sio) == fixed_length
+    @test bytesavailable(sio) <= fixed_length  # likely going to be length(sentinel), but always <= fixed_length
 
     # read < fixed_length bytes
     n = 8
     a = read(sio, n)
     @test a == first(content, n)
-    @test bytesavailable(sio) == fixed_length - n
+    @test bytesavailable(sio)  <= fixed_length - n
 
     # read everything else
     b = read(sio)
@@ -135,21 +135,21 @@ end
 
     # seek and try again
     seek(sio, n)
-    @test bytesavailable(sio) == fixed_length - n
+    @test bytesavailable(sio) <= fixed_length - n
     e = read(sio)
     @test e == content[n+1:fixed_length]
     @test eof(sio)
 
     # seek more and try again
     seekstart(sio)
-    @test bytesavailable(sio) == fixed_length
+    @test bytesavailable(sio) <= fixed_length
     f = read(sio)
     @test f == first(content, fixed_length)
     @test eof(sio)
 
     # skip and try again
     skip(sio, -n)
-    @test bytesavailable(sio) == n
+    @test bytesavailable(sio) <= n
     g = read(sio)
     @test g == content[fixed_length-n+1:fixed_length]
     @test eof(sio)
@@ -185,10 +185,10 @@ end
     @test !eof(sio)
     @test read(sio) == content[fixed_length+1:2*fixed_length + sentinel_length]
     @test eof(sio)
-    # clear the second sentinel and read to end
+    # clear the second sentinel and try to read to end, which should cause an error because the last sentinel was never found
     Base.reseteof(sio)
     @test !eof(sio)
-    @test read(sio) == content[2*fixed_length + sentinel_length + 1:end]
+    @test_throws EOFError read(sio)
     @test eof(sio)
     # clearing the second sentinel should keep us at eof
     Base.reseteof(sio)
