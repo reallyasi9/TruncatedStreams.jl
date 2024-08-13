@@ -22,7 +22,7 @@ Note that writing to the stream does not affect truncation.
 abstract type TruncatedIO <: IO end
 
 """
-unwrap(s<:TruncatedIO) -> IO
+    unwrap(s<:TruncatedIO) -> IO
 
 Return the wrapped source.
 """
