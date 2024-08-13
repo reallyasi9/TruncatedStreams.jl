@@ -113,12 +113,14 @@ mutable struct SentinelIO{S<:IO} <: TruncatedIO
     buffer_length_at_mark::Int
 
     function SentinelIO(io::S, sentinel::AbstractVector{UInt8}) where {S<:IO}
+        sen = Vector{UInt8}(sentinel) # so I have a real Vector
+        ns = length(sen)
         # generate the failure function for the Knuth–Morris–Pratt algorithm
-        ff = Vector{Int}(undef, length(sentinel))
+        ff = Vector{Int}(undef, ns)
         ff[1] = 0
         pos = 2
         cnd = 1
-        while pos <= length(sentinel)
+        while pos <= ns
             if sentinel[pos] == sentinel[cnd]
                 ff[pos] = ff[cnd]
             else
@@ -132,9 +134,11 @@ mutable struct SentinelIO{S<:IO} <: TruncatedIO
         end
         # lazily fill the buffer only when needed
         buffer = UInt8[]
-        return new{S}(io, sentinel, buffer, ff, false, 0)
+        return new{S}(io, sen, buffer, ff, false, 0)
     end
 end
+
+SentinelIO(io::IO, sentinel::AbstractString) = SentinelIO(io, codeunits(sentinel))
 
 unwrap(s::SentinelIO) = s.wrapped
 

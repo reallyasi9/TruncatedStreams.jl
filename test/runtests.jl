@@ -222,4 +222,14 @@ end
     @test position(sio) == 0
 end
 
+@testitem "SentinelIO strings" begin
+    content = "Hello, Julia!"
+    sentinel = SubString(content, 6:7)
+    io = IOBuffer(content)
+    sio = SentinelIO(io, sentinel)
+
+    @test read(sio, String) == "Hello"
+    @test eof(sio)
+end
+
 @run_package_tests verbose = true
