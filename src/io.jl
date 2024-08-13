@@ -270,8 +270,8 @@ julia> read(sio)  # still the same output because the sentinel is still there
  0x05
 ```
 
-Detection of eof can be reset with the `Base.reseteof()` method if the sentinel read is
-determined upon further inspection to be bogus.
+Detection of eof can be reset with the `Base.reseteof()` method. Use this if the sentinel
+that was read is determined upon further inspection to be bogus.
 
 ```jldoctest sentinelio_2
 julia> Base.reseteof(sio)  # that last sentinel was fake, so reset EOF and read again

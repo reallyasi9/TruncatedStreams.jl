@@ -4,15 +4,58 @@
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://reallyasi9.github.io/TruncatedStreams.jl/dev/)
 [![Build Status](https://github.com/reallyasi9/TruncatedStreams.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/reallyasi9/TruncatedStreams.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
-## Read to end-of-stream, not to end-of-file.
+> "...where ignorance is bliss, 'tis folly to be wise"
+>
+> *-Thomas Gray, "Ode on a Distant Prospect of Eton College"*
 
-Julia IO objects offer two methods for reading a number of bytes: `read(io, n)`, which reads `n` bytes from `io` into a `Vector{UInt8}`, and `readuntil(io, s)`, which reads bytes from `io` until a sentinel `s` is found, returning all of the bytes read as a `Vector{UInt8}`.
+## Synopsis
+```julia
+using TruncatedStreams
 
-But what if you want to read many objects from `io` up until you have read `n` bytes, and `n` is larger than available memory? You can't just read everything into a `Vector{UInt8}`, and keeping treack of how many bytes you consume with each call to `read(io, ::Type)` is annoying and not very flexible.
+io = IOBuffer(collect(0x00:0xff))
 
-And what if you do not know how many bytes to expect to consume from `io` before you reach the sentinel `s`? It's risky to keep reading everything into a `Vector{UInt8}` until the sentinel is found, because what if that consumes all your available memory? You could read individual objects from `io` using `read(io, ::Type)`, but you would have to check every with every read operation whether you just consumed the sentinel, which is annoying and not very flexible. And what if you accidentally consume part of the sentinel with one `read(io, ::Type)`?
+fixed_io = FixedLengthIO(io, 10)  # only read the first 10 bytes
+@assert length(read(fixed_io)) == 10
+@assert eof(fixed_io) == true
+@assert eof(io) == false
 
-Enter `TruncatedStreams`, and specifically the `FixedLengthIO` and `SentinelIO` types. `FixedLengthIO` wraps an `IO` object and will read from it until a certain number of bytes is read, after which `FixedLengthIO` will act as if it has reach end of file:
+sentinel_io = SentinelIO(io, [0x10, 0x11])  # only read until the sentinel is read
+@assert length(read(sentinel_io)) == 5
+@assert eof(sentinel_io) == true
+@assert eof(io) == false
+
+close(io)
+```
+
+## Lie to me
+
+Julia basically offers two methods for reading some but not all the bytes from an IO object:
+- `read(::IO, ::Integer)`, which reads up to some number of bytes from an IO object, allocating and appending to a `Vector{UInt8}` to hold everything it reads; or
+- `readuntil(::IO, ::Vector{UInt8})`, which reads bytes from an IO object until a sentinel vector is found, again allocating and appending to a `Vector{UInt8}` to hold everything it reads.
+
+But what if you find yourself in the following situation:
+1. You want to read values of many different types from from an IO object.
+2. You know you can safely read some number of bytes from the IO object, but no more (either a fixed number or until some sentinel is reached).
+3. You do not want to (or cannot) read everything from the IO object into memory at once.
+
+This may seem like a contrived situation, but consider an IO object representing a concatenated series of very large files, like what you might see in a TAR or ZIP archive:
+1. You want to treat each file in the archive like a file on disk, reading an arbitrary number of values of arbitrary types from the file.
+2. The file either starts with a header that tells you how many bytes long the file is or ends with a sentinel so you know to stop reading.
+3. You do not want to (or cannot) read the entire file into memory before parsing.
+
+Enter `TruncatedStreams`. This package exports types that inherit from `Base.IO` and wrap other `Base.IO` objects with one purpose in mind: to lie about EOF. This means you can wrap your IO object and blindly read from it until it signals EOF, just like you would any other IO object. And, if the wrapped IO object supports it, you can write to the stream, seek to a position, skip bytes, mark and reset positions, or do whatever basic IO operation you can think of and not have to worry about whether you remembered to add or subtract the right number of bytes from your running tally, or whether your buffered read accidentally captured half of the sentinel at the end.
+
+Ignorance is bliss.
+
+## Installation
+```julia
+using Pkg; Pkg.install("TruncatedStreams")
+```
+
+## Use
+
+### `FixedLengthIO`
+`FixedLengthIO` wraps an `IO` object and will read from it until a certain number of bytes is read, after which `FixedLengthIO` will act as if it has reach end of file:
 
 ```julia
 julia> using TruncatedStreams
@@ -32,7 +75,7 @@ julia> read(fio)  # Everything else
 julia> eof(fio)
 true
 ```
-
+### `SentinelIO`
 `SentinelIO` wraps an `IO` object and will read from in until a sentinel is found, after which `SentinelIO` will act as if it has reach end of file:
 
 ```julia
