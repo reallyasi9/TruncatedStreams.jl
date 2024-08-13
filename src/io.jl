@@ -1,5 +1,5 @@
 """
-TruncatedIO <: IO
+    TruncatedIO <: IO
 
 Wraps a streaming IO object that reads only as much as should be read and not a byte more.
 
@@ -68,7 +68,7 @@ function Base.read(s::TruncatedIO, ::Type{UInt8})
 end
 
 """
-FixedLengthIO(io, length) <: TruncatedIO
+    FixedLengthIO(io, length) <: TruncatedIO
 
 A truncated source that reads `io` up to `length` bytes.
 
@@ -194,7 +194,7 @@ function Base.reset(s::FixedLengthIO)
 end
 
 """
-SentinelIO(io, sentinel) <: TruncatedIO
+    SentinelIO(io, sentinel) <: TruncatedIO
 
 A truncated source that reads `io` until `sentinel` is found.
 
@@ -286,6 +286,18 @@ julia> read(sio)  # returns the first sentinel found and continues to read until
  0x04
  0x05
 ```
+
+!!! note
+    If the wrapped stream does not contain a sentinel, reading to the end of the stream will
+    throw `EOFError`.
+
+```jldoctest sentinelio_3
+julia> io = IOBuffer(collect(0x00:0x07)); sio = SentinelIO(io, [0xff, 0xfe]);
+
+julia> read(sio)
+ERROR: EOFError: read end of file
+[...]
+```
 """
 mutable struct SentinelIO{S<:IO} <: TruncatedIO
     wrapped::S
@@ -293,12 +305,9 @@ mutable struct SentinelIO{S<:IO} <: TruncatedIO
     buffer::Vector{UInt8}
     failure_function::Vector{Int}
     skip_next_eof::Bool
+    buffer_length_at_mark::Int
 
     function SentinelIO(io::S, sentinel::AbstractVector{UInt8}) where {S<:IO}
-        buffer = read(io, length(sentinel))
-        if length(buffer) < length(sentinel)
-            throw(EOFError())
-        end
         # generate the failure function for the Knuth–Morris–Pratt algorithm
         ff = Vector{Int}(undef, length(sentinel))
         ff[1] = 0
@@ -316,32 +325,45 @@ mutable struct SentinelIO{S<:IO} <: TruncatedIO
             pos += 1
             cnd += 1
         end
-        return new{S}(io, sentinel, buffer, ff, false)
+        # lazily fill the buffer only when needed
+        buffer = UInt8[]
+        return new{S}(io, sentinel, buffer, ff, false, 0)
     end
 end
 
 unwrap(s::SentinelIO) = s.wrapped
 
-function Base.bytesavailable(s::SentinelIO)
+# count the number of bytes before a prefix match on the next sentinel
+function count_safe_bytes(s::SentinelIO, stop_early::Bool=false)
+    nb = length(s.buffer)
+    
     if eof(unwrap(s))
         # make sure the last bytes in the buffer can be read
         if s.buffer != s.sentinel
-            return length(s.buffer)
+            return nb
         else
             return 0
         end
+    end
+
+    # an empty buffer needs to be filled before searching for the sentinel
+    if nb < length(s.sentinel)
+        nb = readbytes!(unwrap(s), s.buffer, length(s.sentinel))
     end
 
     # search the buffer for the longest prefix match of the sentinel
     jb = 1 # buffer index
     ks = 1 # sentinel index
 
-    while jb <= length(s.buffer)
+    while jb <= nb
         if s.sentinel[ks] == s.buffer[jb]
             # byte matches sentinel, move to next
             jb += 1
             ks += 1
         else
+            if stop_early
+                return jb
+            end
             # byte does not match, determine where in the sentinel to restart the search
             ks = s.failure_function[ks]
             if ks == 0
@@ -353,7 +375,7 @@ function Base.bytesavailable(s::SentinelIO)
     end
 
     # at this point, ks-1 bytes have matched at the end of the buffer
-    remaining = length(s.buffer) - ks + 1
+    remaining = nb - ks + 1
     if remaining == 0 && s.skip_next_eof
         return 1 # allow a single byte to be read
     else
@@ -361,7 +383,16 @@ function Base.bytesavailable(s::SentinelIO)
     end
 end
 
-Base.eof(s::SentinelIO) = bytesavailable(s) == 0
+Base.bytesavailable(s::SentinelIO) = count_safe_bytes(s)
+
+Base.eof(s::SentinelIO) = count_safe_bytes(s, true) == 0
+
+# fill the first n bytes of the buffer from the wrapped stream, overwriting what is there
+function fill_buffer(s::SentinelIO, n::Integer=length(s.sentinel))
+    to_read = min(n, length(s.sentinel))
+    nb = readbytes!(unwrap(s), s.buffer, to_read)
+    return nb
+end
 
 function Base.unsafe_read(s::SentinelIO, p::Ptr{UInt8}, n::UInt)
     # read available bytes, checking for sentinel each time
@@ -370,20 +401,27 @@ function Base.unsafe_read(s::SentinelIO, p::Ptr{UInt8}, n::UInt)
     available = bytesavailable(s)
     while to_read > 0 && available > 0
         this_read = min(to_read, available)
+        
         # buffer: [ safe_1, safe_2, ..., safe_(available), unsafe_1, unsafe_2, ..., unsafe_(end)]
         buf = s.buffer
         GC.@preserve buf unsafe_copyto!(p + ptr, pointer(buf), this_read)
         ptr += this_read
+
+        n_read = fill_buffer(s, this_read)
+        # buffer: [ new_1, new_2, ..., new_(this_read), safe_(this_read+1), ..., safe_(available), unsafe_1, unsafe_2, ..., unsafe_(end)]
+
         circshift!(buf, -this_read)
-        # buffer: [ safe_(this_read + 1), safe_(this_read + 2), ..., safe_(available), unsafe_1, unsafe_2, ..., unsafe_(end), safe_1, safe_2, ..., safe_(this_read)]
-        n_read = readbytes!(unwrap(s), @view(buf[end-this_read+1:end]), this_read)
+        # buffer: [ safe_(this_read + 1), safe_(this_read + 2), ..., safe_(available), unsafe_1, unsafe_2, ..., unsafe_(end), new_1, new_2, ..., new_(this_read)]
+
         # a successful read of anything resets the eof skip
         s.skip_next_eof = false
+
         if n_read < this_read
             # this happens because we fell off the face of the planet, so clear the buffer
             copyto!(s.buffer, s.sentinel)
             throw(EOFError())
         end
+
         to_read -= this_read
         available = bytesavailable(s)
     end
@@ -408,8 +446,8 @@ function Base.seek(s::SentinelIO, n::Integer)
     if bytes <= 0
         seek(unwrap(s), pos)
         # fill the buffer again, which should be guaranteed to work, but check just in case
-        nb = readbytes!(unwrap(s), s.buffer, length(s.buffer))
-        if nb != length(s.buffer)
+        nb = fill_buffer(s)
+        if nb != length(s.sentinel)
             throw(EOFError())
         end
     else
@@ -426,19 +464,22 @@ Base.skip(s::SentinelIO, n::Integer) = seek(s, position(s) + n)
 function Base.mark(s::SentinelIO)
     pos = mark(unwrap(s))
     # lie about where we are in the stream
-    return pos - length(s.buffer)
+    # noting that the length of the buffer might change
+    nb = length(s.buffer)
+    s.buffer_length_at_mark = nb
+    return pos - nb
 end
 
 function Base.reset(s::SentinelIO)
     pos = reset(unwrap(s))
-    # refill the buffer manually
-    seek(unwrap(s), pos - length(s.buffer))
-    nb = readbytes!(unwrap(s), s.buffer, length(s.buffer))
-    if nb != length(s.buffer)
+    # refill the buffer manually, which should be guaranteed to work, but check just in case
+    seek(unwrap(s), pos - s.buffer_length_at_mark)
+    nb = fill_buffer(s)
+    if nb != length(s.sentinel)
         throw(EOFError())
     end
     # lie about where the current position is
-    return pos - length(s.buffer)
+    return pos - s.buffer_length_at_mark
 end
 
 function Base.reseteof(s::SentinelIO)

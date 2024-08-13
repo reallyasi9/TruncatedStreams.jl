@@ -194,7 +194,32 @@ end
     Base.reseteof(sio)
     @test eof(sio)
     @test isempty(read(sio))
+end
 
+@testitem "SentinelIO lazy buffer" begin
+    using Random
+    rng = MersenneTwister(42)
+
+    content_length = 1024
+    content = rand(rng, UInt8, content_length)
+    sentinel_length = 16
+    sentinel = rand(rng, UInt8, sentinel_length)
+    fixed_length = 256
+    content[fixed_length+1:fixed_length+sentinel_length] = sentinel
+
+    io = IOBuffer(content)
+    sio = SentinelIO(io, sentinel)
+
+    # immediately check position, which should be 0, even though the buffer hasn't been filled yet
+    @test position(sio) == 0
+
+    # mark this position, read to fill the buffer, then reset to see if the position is correct
+    @test mark(sio) == 0
+    a = read(sio)
+    @test a == content[begin:fixed_length]
+    @test position(sio) == fixed_length
+    @test reset(sio) == 0
+    @test position(sio) == 0
 end
 
 @run_package_tests verbose = true
