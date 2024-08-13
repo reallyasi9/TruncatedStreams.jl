@@ -91,7 +91,7 @@ julia> read(fio)
  0x09
 
 julia> eof(fio)
- true
+true
 ```
 
 As soon as a read from a `FixedLengthIO` object would read past `length` bytes of the
@@ -198,8 +198,94 @@ SentinelIO(io, sentinel) <: TruncatedIO
 
 A truncated source that reads `io` until `sentinel` is found.
 
-Can be reset with the `reseteof()` method if the sentinel read is discovered upon further
-inspection to be bogus.
+```jldoctest sentinelio_1
+julia> io = IOBuffer(collect(0x00:0xff));
+
+julia> sio = SentinelIO(io, [0x0a, 0x0b]);
+
+julia> read(sio)
+10-element Vector{UInt8}:
+ 0x00
+ 0x01
+ 0x02
+ 0x03
+ 0x04
+ 0x05
+ 0x06
+ 0x07
+ 0x08
+ 0x09
+
+julia> eof(sio)
+true
+```
+
+As soon as a read from a `SentinelIO` object would read the start of a byte sequence
+matching `sentinel` from the underlying IO stream, EOF is signalled, potentially leading to
+an `EOFError` being thrown.
+
+```jldoctest sentinelio_1
+julia> read(sio, Int)
+ERROR: EOFError: read end of file
+[...]
+```
+
+Seeking does not affect reading of the sentinel, but may affect how many bytes are available
+to read.
+
+```jldoctest sentinelio_1
+julia> seek(sio, 8); read(sio)
+2-element Vector{UInt8}:
+ 0x08
+ 0x09
+```
+
+Writing to a `SentinelIO` object does not affect the length at which the stream is
+truncated, but may affect how many bytes are available to read.
+
+
+```jldoctest sentinelio_2
+julia> io = IOBuffer(collect(0x00:0x07); read=true, write=true); sio = SentinelIO(io, [0x06, 0x07]);
+
+julia> read(sio)
+6-element Vector{UInt8}:
+ 0x00
+ 0x01
+ 0x02
+ 0x03
+ 0x04
+ 0x05
+
+julia> write(sio, collect(0x01:0xff));
+
+julia> seekstart(sio);  # writing advances the IOBuffer's read pointer
+
+julia> read(sio)  # still the same output because the sentinel is still there
+6-element Vector{UInt8}:
+ 0x00
+ 0x01
+ 0x02
+ 0x03
+ 0x04
+ 0x05
+```
+
+Detection of eof can be reset with the `Base.reseteof()` method if the sentinel read is
+determined upon further inspection to be bogus.
+
+```jldoctest sentinelio_2
+julia> Base.reseteof(sio)  # that last sentinel was fake, so reset EOF and read again
+
+julia> read(sio)  # returns the first sentinel found and continues to read until the next one is found
+7-element Vector{UInt8}:
+ 0x06
+ 0x07
+ 0x01
+ 0x02
+ 0x03
+ 0x04
+ 0x05
+```
 """
 mutable struct SentinelIO{S<:IO} <: TruncatedIO
     wrapped::S
