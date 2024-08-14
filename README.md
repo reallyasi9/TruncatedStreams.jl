@@ -10,20 +10,29 @@
 
 ## Synopsis
 
+TruncatedStreams provides types that meet the following four criteria:
+
+1. Inherit from `Base.IO`;
+2. Transparently pass all basic IO methods through to a wrapped `IO` object, except...
+3. Lie about `eof`, and...
+4. Do not read a single byte more from the wrapped `IO` object than what is necessary to determine EOF.
+
 ```julia
 using TruncatedStreams
 
 io = IOBuffer(collect(0x00:0xff))
 
-fixed_io = FixedLengthIO(io, 10)  # only read the first 10 bytes
-@assert length(read(fixed_io)) == 10
+fixed_io = FixedLengthIO(io, 10)  # pretend EOF occurs after the first 10 bytes are read
+@assert read(fixed_io) == collect(0x00:0x09)
 @assert eof(fixed_io) == true
-@assert eof(io) == false
+@assert eof(io) == false  # a lie, but a useful one!
+@assert peek(io) == 0x0a  # read exactly 10 bytes from io and not a byte more
 
-sentinel_io = SentinelIO(io, [0x10, 0x11])  # only read until the sentinel is read
-@assert length(read(sentinel_io)) == 5
+sentinel_io = SentinelIO(io, [0x10, 0x11])  # pretend EOF occurs as soon as the sentinel is read
+@assert read(sentinel_io) == collect(0x0a:0x0f)
 @assert eof(sentinel_io) == true
 @assert eof(io) == false
+@assert peek(io) == 0x12  # the sentinel is consumed, but not a byte more
 
 close(io)
 ```
@@ -61,7 +70,7 @@ using Pkg; Pkg.install("TruncatedStreams")
 
 ### `FixedLengthIO`
 
-`FixedLengthIO` wraps an `IO` object and will read from it until a certain number of bytes is read, after which `FixedLengthIO` will act as if it has reach end of file:
+`FixedLengthIO` wraps an `IO` object and will read from it until a certain number of bytes is read, after which `FixedLengthIO` will act as if it has reached the end of the file:
 
 ```julia
 julia> using TruncatedStreams
@@ -84,7 +93,7 @@ true
 
 ### `SentinelIO`
 
-`SentinelIO` wraps an `IO` object and will read from in until a sentinel is found, after which `SentinelIO` will act as if it has reach end of file:
+`SentinelIO` wraps an `IO` object and will read from in until a sentinel is found, after which `SentinelIO` will act as if it has reached the end of the file, discarding the sentinel:
 
 ```julia
 julia> using TruncatedStreams
@@ -109,4 +118,7 @@ julia> read(sio)  # Everything else
 
 julia> eof(sio)  # It's a lie, but it's a useful one!
 true
+
+julia> peek(io)  # Note that the sentinel is no longer in the wrapped IO
+0x13
 ```
