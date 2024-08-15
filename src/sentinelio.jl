@@ -276,7 +276,8 @@ function Base.skip(s::SentinelIO, bytes::Integer)
     # skipping backwards is only possible if the wrapped stream allows it.
     # skipping forwards is easier done as reading and dumping data.
     if bytes <= 0
-        skip(unwrap(s), bytes)
+        # skip back, including the length of the sentinel, because we have to dump the buffer and reload
+        skip(unwrap(s), bytes - length(s.buffer))
         # fill the buffer again, which should be guaranteed to work, but check just in case
         nb = fill_buffer(s)
         if nb != length(s.sentinel)
