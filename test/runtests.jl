@@ -319,4 +319,16 @@ end
     @test_throws ErrorException skip(sentinel_seek_only, -n)
 end
 
+@testitem "FixedLengthIO large streams on 32-bit systems" begin
+    content_length = Int64(1<<32 + 2)
+    fixed_length = content_length - 1
+    content = Vector{UInt8}(undef, content_length)
+    io = IOBuffer(content)
+    fio = FixedLengthIO(io, fixed_length)
+    
+    seekend(fio)
+    @test position(fio) == fixed_length
+    @test eof(fio)
+end
+
 @run_package_tests verbose = true

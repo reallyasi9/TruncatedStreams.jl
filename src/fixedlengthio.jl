@@ -79,8 +79,8 @@ julia> read(fio)
 """
 mutable struct FixedLengthIO{S<:IO} <: TruncatedIO
     wrapped::S
-    length::Int
-    remaining::Int
+    length::Int64
+    remaining::Int64
 
     FixedLengthIO(io::S, length::Integer) where {S} = new{S}(io, length, length)
 end
@@ -105,7 +105,7 @@ function Base.unsafe_read(s::FixedLengthIO, p::Ptr{UInt8}, n::UInt)
 end
 
 function Base.seek(s::FixedLengthIO, n::Integer)
-    pos = clamp(Int(n), 0, s.length)
+    pos = clamp(Int64(n), Int64(0), s.length)
     s.remaining = s.length - pos
     return seek(unwrap(s), pos)
 end
@@ -114,7 +114,7 @@ Base.seekend(s::FixedLengthIO) = seek(s, s.length)
 
 function Base.skip(s::FixedLengthIO, n::Integer)
     # negative numbers will add bytes back to bytesremaining
-    bytes = clamp(Int(n), s.remaining - s.length, s.remaining)
+    bytes = clamp(Int64(n), s.remaining - s.length, s.remaining)
     s.remaining -= bytes
     return skip(unwrap(s), bytes)
 end
