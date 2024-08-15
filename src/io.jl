@@ -18,6 +18,15 @@ implemented:
 - `Base.reseteof(::TruncatedIO)::Nothing`: reset EOF status.
 
 Note that writing to the stream does not affect truncation.
+
+The following methods must be implemented by the wrapped IO type for all the functionality
+of the truncated streams to work at all:
+- `Base.eof(::IO)::Bool`
+- `Base.read(::IO, ::Type{UInt8})::UInt8`
+
+The wrapped stream also must implement `Base.seek` and `Base.skip` for seeking and skipping
+of the truncated stream to work properly. Additionally, `Base.position` needs to be
+implemented for some instances of `Base.seek` to work properly.
 """
 abstract type TruncatedIO <: IO end
 

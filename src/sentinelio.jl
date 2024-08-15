@@ -261,14 +261,33 @@ function Base.seek(s::SentinelIO, n::Integer)
         end
     else
         # drop remainder on the floor
-        read(s, bytes)
+        while bytes > 0 && !eof(s)
+            # if the number of bytes is too large, reading everything at once will cause a out-of-memory error, so read to EOF instead
+            read(s, UInt8)
+            bytes -= 1
+        end
     end
     return s
 end
 
 Base.seekend(s::SentinelIO) = read(s) # read until the end
 
-Base.skip(s::SentinelIO, n::Integer) = seek(s, position(s) + n)
+function Base.skip(s::SentinelIO, bytes::Integer)
+    # skipping backwards is only possible if the wrapped stream allows it.
+    # skipping forwards is easier done as reading and dumping data.
+    if bytes <= 0
+        skip(unwrap(s), bytes)
+        # fill the buffer again, which should be guaranteed to work, but check just in case
+        nb = fill_buffer(s)
+        if nb != length(s.sentinel)
+            throw(EOFError())
+        end
+    else
+        # drop remainder on the floor
+        read(s, bytes)
+    end
+    return s
+end
 
 function Base.mark(s::SentinelIO)
     pos = mark(unwrap(s))

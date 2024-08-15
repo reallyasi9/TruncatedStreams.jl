@@ -232,4 +232,91 @@ end
     @test eof(sio)
 end
 
+@testitem "skip only and seek only" begin
+    # in response to https://github.com/reallyasi9/TruncatedStreams.jl/issues/2
+    struct SeekOnly{T <: IO} <: IO
+        io::T
+    end
+    Base.seek(so::SeekOnly, pos::Integer) = seek(so.io, pos)
+    Base.skip(::SeekOnly, ::Integer) = error("not implemented")
+    Base.position(so::SeekOnly) = position(so.io)
+    Base.eof(so::SeekOnly) = eof(so.io)
+    Base.read(so::SeekOnly, ::Type{UInt8}) = read(so.io, UInt8)
+
+    struct SkipOnly{T <: IO} <: IO
+        io::T
+    end
+    Base.seek(::SkipOnly, ::Integer) = error("not implemented")
+    Base.skip(so::SkipOnly, n::Integer) = skip(so.io, n)
+    Base.position(so::SkipOnly) = position(so.io)
+    Base.eof(so::SkipOnly) = eof(so.io)
+    Base.read(so::SkipOnly, ::Type{UInt8}) = read(so.io, UInt8)
+
+    using Random
+    rng = MersenneTwister(42)
+
+    content_length = 1024
+    content = rand(rng, UInt8, content_length)
+    sentinel_length = 16
+    sentinel = rand(rng, UInt8, sentinel_length)
+    fixed_length = 256
+    content[fixed_length+1:fixed_length+sentinel_length] = sentinel
+
+    # FixedLengthIO, skip only
+    io = IOBuffer(content)
+    skip_io = SkipOnly(io)
+    fixed_skip_only = FixedLengthIO(skip_io, fixed_length)
+    
+    n = 8
+    skip(fixed_skip_only, n)
+    @test position(fixed_skip_only) == n
+    skip(fixed_skip_only, typemax(Int))
+    @test position(fixed_skip_only) == fixed_length
+    @test eof(fixed_skip_only)
+
+    @test_throws ErrorException seek(fixed_skip_only, n)
+
+    # FixedLengthIO, seek only
+    seekstart(io)
+    seek_io = SeekOnly(io)
+    fixed_seek_only = FixedLengthIO(seek_io, fixed_length)
+    
+    seek(fixed_seek_only, n)
+    @test position(fixed_seek_only) == n
+    seek(fixed_seek_only, typemax(Int))
+    @test position(fixed_seek_only) == fixed_length
+    @test eof(fixed_seek_only)
+    seekstart(fixed_seek_only)
+
+    @test_throws ErrorException skip(fixed_seek_only, -n)
+
+    # SentinelIO, skip only
+    seekstart(io)
+    skip_io = SkipOnly(io)
+    sentinel_skip_only = SentinelIO(skip_io, sentinel)
+    
+    n = 8
+    skip(sentinel_skip_only, n)
+    @test position(sentinel_skip_only) == n
+    skip(sentinel_skip_only, typemax(Int))
+    @test position(sentinel_skip_only) == fixed_length
+    @test eof(sentinel_skip_only)
+
+    @test_throws ErrorException seek(sentinel_skip_only, n)
+
+    # SentinelIO, seek only
+    seekstart(io)
+    seek_io = SeekOnly(io)
+    sentinel_seek_only = SentinelIO(seek_io, sentinel)
+    
+    seek(sentinel_seek_only, n)
+    @test position(sentinel_seek_only) == n
+    seek(sentinel_seek_only, typemax(Int))
+    @test position(sentinel_seek_only) == fixed_length
+    @test eof(sentinel_seek_only)
+    seekstart(sentinel_seek_only)
+
+    @test_throws ErrorException skip(sentinel_seek_only, -n)
+end
+
 @run_package_tests verbose = true

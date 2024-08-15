@@ -105,9 +105,9 @@ function Base.unsafe_read(s::FixedLengthIO, p::Ptr{UInt8}, n::UInt)
 end
 
 function Base.seek(s::FixedLengthIO, n::Integer)
-    pos = clamp(n, 0, s.length)
+    pos = clamp(Int(n), 0, s.length)
     s.remaining = s.length - pos
-    return seek(unwrap(s), n)
+    return seek(unwrap(s), pos)
 end
 
 Base.seekend(s::FixedLengthIO) = seek(s, s.length)
@@ -115,7 +115,8 @@ Base.seekend(s::FixedLengthIO) = seek(s, s.length)
 function Base.skip(s::FixedLengthIO, n::Integer)
     # negative numbers will add bytes back to bytesremaining
     bytes = clamp(Int(n), s.remaining - s.length, s.remaining)
-    return seek(s, position(s) + bytes)
+    s.remaining -= bytes
+    return skip(unwrap(s), bytes)
 end
 
 function Base.reset(s::FixedLengthIO)
