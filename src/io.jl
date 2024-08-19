@@ -66,8 +66,6 @@ end
 # n-ary functions
 Base.seek(s::TruncatedIO, n::Integer) = seek(unwrap(s), n)
 Base.skip(s::TruncatedIO, n::Integer) = skip(unwrap(s), n)
-Base.unsafe_read(s::TruncatedIO, p::Ptr{UInt8}, n::UInt) = unsafe_read(unwrap(s), p, n)
-Base.unsafe_write(s::TruncatedIO, p::Ptr{UInt8}, n::UInt) = unsafe_write(unwrap(s), p, n)
 
 # required to override byte-level reading of objects by delegating to unsafe_read
 function Base.read(s::TruncatedIO, ::Type{UInt8})
@@ -75,3 +73,9 @@ function Base.read(s::TruncatedIO, ::Type{UInt8})
     unsafe_read(s, r, 1)
     return r[]
 end
+
+# allows bytesavailable to signal how much can be read from the stream at a time
+Base.readavailable(s::TruncatedIO) = read(s, bytesavailable(s))
+
+# required to allow passthrough of byte-level writing
+Base.write(s::TruncatedIO, x::UInt8) = return write(unwrap(s), x)
