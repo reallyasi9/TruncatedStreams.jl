@@ -271,7 +271,7 @@ function Base.seek(s::SentinelIO, n::Integer)
 end
 
 function Base.seekend(s::SentinelIO)
-    read(s) # read until the end
+    write(devnull, s) # read until the end
     return s
 end
 
