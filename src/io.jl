@@ -51,7 +51,6 @@ for func in (
     :ismarked,
     :isreadable,
     :iswritable,
-    :seekend,
 )
     @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
 end
@@ -62,12 +61,6 @@ end
         @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
     end
 end
-
-# n-ary functions
-Base.seek(s::TruncatedIO, n::Integer) = seek(unwrap(s), n)
-Base.skip(s::TruncatedIO, n::Integer) = skip(unwrap(s), n)
-Base.unsafe_read(s::TruncatedIO, p::Ptr{UInt8}, n::UInt) = unsafe_read(unwrap(s), p, n)
-Base.unsafe_write(s::TruncatedIO, p::Ptr{UInt8}, n::UInt) = unsafe_write(unwrap(s), p, n)
 
 # required to override byte-level reading of objects by delegating to unsafe_read
 function Base.read(s::TruncatedIO, ::Type{UInt8})
