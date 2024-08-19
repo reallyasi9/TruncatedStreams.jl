@@ -50,7 +50,7 @@ end
     @test eof(fio)
 
     # seek more and try again
-    @test seekstart(fio) == fio
+    @test seekstart(fio) === fio
     @test bytesavailable(fio) == fixed_length
     f = read(fio)
     @test f == first(content, fixed_length)
