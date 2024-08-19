@@ -320,10 +320,13 @@ end
 end
 
 @testitem "FixedLengthIO large streams on 32-bit systems" begin
-    content_length = Int64(1<<32 + 2)
-    fixed_length = content_length - 1
-    content = Vector{UInt8}(undef, content_length)
-    io = IOBuffer(content)
+    # use Zeros and InputBuffer to simulate a giant IOStream with out having to make a big file.
+    using FillArrays: Zeros
+    using InputBuffers: InputBuffer
+    content_length = Int64(1)<<32 + Int64(2)
+    fixed_length = content_length - Int64(1)
+    content = Zeros{UInt8}(content_length)
+    io = InputBuffer(content)
     fio = FixedLengthIO(io, fixed_length)
     
     seekend(fio)

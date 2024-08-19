@@ -9,9 +9,11 @@ version = "1.1.0"
 julia = "1.6.7"
 
 [extras]
+FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"
+InputBuffers = "0c81fc1b-5583-44fc-8770-48be1e1cca08"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 
 [targets]
-test = ["Random", "Test", "TestItemRunner"]
+test = ["FillArrays", "InputBuffers", "Random", "Test", "TestItemRunner"]
