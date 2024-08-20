@@ -270,7 +270,10 @@ function Base.seek(s::SentinelIO, n::Integer)
     return s
 end
 
-Base.seekend(s::SentinelIO) = read(s) # read until the end
+function Base.seekend(s::SentinelIO)
+    write(devnull, s) # read until the end
+    return s
+end
 
 function Base.skip(s::SentinelIO, bytes::Integer)
     # skipping backwards is only possible if the wrapped stream allows it.

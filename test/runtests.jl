@@ -43,21 +43,21 @@ end
     @test eof(fio)
 
     # seek and try again
-    seek(fio, n)
+    @test seek(fio, n) === fio
     @test bytesavailable(fio) == fixed_length - n
     e = read(fio)
     @test e == content[n+1:fixed_length]
     @test eof(fio)
 
     # seek more and try again
-    seekstart(fio)
+    @test seekstart(fio) === fio
     @test bytesavailable(fio) == fixed_length
     f = read(fio)
     @test f == first(content, fixed_length)
     @test eof(fio)
 
     # skip and try again
-    skip(fio, -n)
+    @test skip(fio, -n) === fio
     @test bytesavailable(fio) == n
     g = read(fio)
     @test g == content[n+1:fixed_length]
@@ -85,7 +85,7 @@ end
     @test position(fio) == n
     seekstart(fio)
     @test position(fio) == 0
-    seekend(fio)
+    @test seekend(fio) === fio
     @test position(fio) == fixed_length
 end
 
@@ -134,21 +134,21 @@ end
     @test eof(sio)
 
     # seek and try again
-    seek(sio, n)
+    @test seek(sio, n) === sio
     @test bytesavailable(sio) <= fixed_length - n
     e = read(sio)
     @test e == content[n+1:fixed_length]
     @test eof(sio)
 
     # seek more and try again
-    seekstart(sio)
+    @test seekstart(sio) === sio
     @test bytesavailable(sio) <= fixed_length
     f = read(sio)
     @test f == first(content, fixed_length)
     @test eof(sio)
 
     # skip and try again
-    skip(sio, -n)
+    @test skip(sio, -n) === sio
     @test bytesavailable(sio) <= n
     g = read(sio)
     @test g == content[fixed_length-n+1:fixed_length]
@@ -176,7 +176,7 @@ end
     @test position(sio) == n
     seekstart(sio)
     @test position(sio) == 0
-    seekend(sio)
+    @test seekend(sio) === sio
     @test position(sio) == fixed_length
 
     # check reseteof and find next sentinel

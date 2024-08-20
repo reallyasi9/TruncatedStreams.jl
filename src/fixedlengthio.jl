@@ -107,7 +107,8 @@ end
 function Base.seek(s::FixedLengthIO, n::Integer)
     pos = clamp(Int64(n), Int64(0), s.length)
     s.remaining = s.length - pos
-    return seek(unwrap(s), pos)
+    seek(unwrap(s), pos)
+    return s
 end
 
 Base.seekend(s::FixedLengthIO) = seek(s, s.length)
@@ -116,7 +117,8 @@ function Base.skip(s::FixedLengthIO, n::Integer)
     # negative numbers will add bytes back to bytesremaining
     bytes = clamp(Int64(n), s.remaining - s.length, s.remaining)
     s.remaining -= bytes
-    return skip(unwrap(s), bytes)
+    skip(unwrap(s), bytes)
+    return s
 end
 
 function Base.reset(s::FixedLengthIO)
