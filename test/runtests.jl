@@ -320,15 +320,74 @@ end
 end
 
 @testitem "FixedLengthIO large streams on 32-bit systems" begin
-    content_length = Int64(1<<32 + 2)
-    fixed_length = content_length - 1
-    content = Vector{UInt8}(undef, content_length)
-    io = IOBuffer(content)
+    # use Zeros and InputBuffer to simulate a giant IOStream with out having to make a big file.
+    using FillArrays: Zeros
+    using InputBuffers: InputBuffer
+    content_length = Int64(1)<<32 + Int64(2)
+    fixed_length = content_length - Int64(1)
+    content = Zeros{UInt8}(content_length)
+    io = InputBuffer(content)
     fio = FixedLengthIO(io, fixed_length)
     
     seekend(fio)
     @test position(fio) == fixed_length
     @test eof(fio)
+end
+
+@testitem "write" begin
+    content = collect(0x00:0x0f)
+    io = IOBuffer(content; read=true, write=true, append=true)
+
+    fixed_length = 17
+    fio = FixedLengthIO(io, fixed_length) # note: stream isn't long enough yet!
+
+    @test read(fio) == content
+
+    seekstart(fio)
+    @test write(fio, [0x10, 0x11]) == 2 # note: append flag above sets write poionter to the end of the stream, while seekstart 
+    @test position(fio) == 0 # write did not change the number of bytes read
+    @test position(io) == 0 # write MAY change the position of the read wrapped buffer, though, so be wary!
+
+    @test read(fio) == collect(0x00:0x10)
+    @test position(fio) == fixed_length
+    @test eof(fio)
+    @test !eof(io)
+
+    seekstart(io)
+    sentinel = [0x11, 0x12]
+    sio = SentinelIO(io, sentinel) # note: sentinel doesn't exist in the stream yet!
+
+    @test_throws EOFError read(sio) # no sentinel found
+    
+    seekstart(sio)
+    @test write(sio, [0x12, 0x13]) == 2 # complete the sentinel by appending
+    @test position(sio) == 0
+    
+    @test read(sio) == collect(0x00:0x10)
+    @test eof(sio)
+    @test !eof(io)
+end
+
+@testitem "readavailable" begin
+    # readavailable is passed through to underlying stream
+    # it's implementation-dependent, so just check to make sure it works and doesn't throw
+    content = collect(0x00:0xff)
+    io = IOBuffer(content; read=true, write=true, append=true)
+
+    fixed_length = 16
+    fio = FixedLengthIO(io, fixed_length)
+
+    r = readavailable(fio)
+    @test length(r) <= fixed_length
+    @test r == first(content, length(r))
+
+    seekstart(io)
+    sentinel = content[fixed_length+1:fixed_length+2]
+    sio = SentinelIO(io, sentinel)
+
+    r = readavailable(sio)
+    @test length(r) <= fixed_length
+    @test r == first(content, length(r))
 end
 
 @run_package_tests verbose = true

@@ -68,3 +68,9 @@ function Base.read(s::TruncatedIO, ::Type{UInt8})
     unsafe_read(s, r, 1)
     return r[]
 end
+
+# allows bytesavailable to signal how much can be read from the stream at a time
+Base.readavailable(s::TruncatedIO) = read(s, bytesavailable(s))
+
+# required to allow passthrough of byte-level writing
+Base.write(s::TruncatedIO, x::UInt8) = return write(unwrap(s), x)
