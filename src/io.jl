@@ -74,3 +74,6 @@ Base.readavailable(s::TruncatedIO) = read(s, bytesavailable(s))
 
 # required to allow passthrough of byte-level writing
 Base.write(s::TruncatedIO, x::UInt8) = return write(unwrap(s), x)
+
+# n-ary peek
+Base.peek(s::TruncatedIO, T::Type) = return peek(unwrap(s), T)

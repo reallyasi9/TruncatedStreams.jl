@@ -319,3 +319,16 @@ function Base.reseteof(s::SentinelIO)
     s.skip_next_eof = true
     return nothing
 end
+
+function Base.peek(s::SentinelIO, T::Type = UInt8)
+    if sizeof(T) > length(s.sentinel)
+        throw(ErrorException("unable to peek more bytes than sentinel length ($(sizeof(T)) > $(length(s.sentinel)))"))
+    end
+    ba = bytesavailable(s)
+    if ba == 0
+        throw(EOFError())
+    elseif sizeof(T) > bytesavailable(s)
+        @warn "potentially peeking into sentinel"
+    end
+    return only(reinterpret(T, @view(s.buffer[1:sizeof(T)])))
+end

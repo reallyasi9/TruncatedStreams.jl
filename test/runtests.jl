@@ -390,4 +390,33 @@ end
     @test r == first(content, length(r))
 end
 
+@testitem "n-ary peek" begin
+    content = codeunits("🐢🐔🐐")
+    io = IOBuffer(content)
+
+    fixed_length = 3
+    fio = FixedLengthIO(io, fixed_length)
+
+    @test peek(fio) == first(content)
+    @test peek(fio, UInt16) == only(reinterpret(UInt16, first(content, 2)))
+    @test_throws EOFError peek(fio, UInt32)
+    seekend(fio)
+    @test_throws EOFError peek(fio)
+
+    seekstart(io)
+    sentinel = "🐔"
+    sio = SentinelIO(io, sentinel)
+    @test peek(sio) == first(content)
+    @test peek(sio, UInt16) == only(reinterpret(UInt16, first(content, 2)))
+    @test peek(sio, UInt32) == only(reinterpret(UInt32, first(content, 4)))
+    # any peek longer than the sentinel will fail
+    @test_throws ErrorException peek(sio, UInt64)
+    # a peek into the sentinel will issue a warning
+    skip(sio, 2)
+    @test peek(sio, UInt32) == only(reinterpret(UInt32, content[3:6]))
+    # a peek past the end of the sentinel will issue EOF
+    seekend(sio)
+    @test_throws EOFError peek(sio)
+end
+
 @run_package_tests verbose = true
