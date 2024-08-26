@@ -94,11 +94,24 @@ Base.eof(s::FixedLengthIO) = eof(unwrap(s)) || s.remaining <= 0
 function Base.unsafe_read(s::FixedLengthIO, p::Ptr{UInt8}, n::UInt)
     # note that the convention from IOBuffer is to read as much as possible first,
     # then throw EOF if the requested read was beyond the number of bytes available.
-    available = bytesavailable(s)
-    to_read = min(available, n)
-    unsafe_read(unwrap(s), p, to_read)
-    s.remaining -= to_read
-    if to_read < n
+    @assert !signbit(s.remaining)
+    p_end = p + n
+    while p != p_end && !eof(s)
+        m = UInt(min(p_end - p, bytesavailable(s)))
+        if iszero(m)
+            b = read(unwrap(s), UInt8)
+            unsafe_store!(p, b)
+            p += UInt(1)
+            s.remaining -= 1
+        else
+            # This must not throw due to bytesavailable check
+            unsafe_read(unwrap(s), p, m)
+            p += m
+            s.remaining -= m
+        end
+    end
+    @assert !signbit(s.remaining)
+    if p != p_end
         throw(EOFError())
     end
     return nothing
