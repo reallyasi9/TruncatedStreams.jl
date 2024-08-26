@@ -4,7 +4,7 @@ using TestItemRunner
     @test isempty(detect_ambiguities(Base, Core, TruncatedStreams))
 end
 
-@testitem "FixedLengthIO" begin
+@testitem "FixedLengthSource" begin
     using Random
     rng = MersenneTwister(42)
 
@@ -13,7 +13,7 @@ end
 
     fixed_length = 16
     io = IOBuffer(content; read=true, write=true)
-    fio = FixedLengthIO(io, fixed_length)
+    fio = FixedLengthSource(io, fixed_length)
     @test bytesavailable(fio) == fixed_length
 
     # read < fixed_length bytes
@@ -89,7 +89,7 @@ end
     @test position(fio) == fixed_length
 end
 
-@testitem "SentinelIO" begin
+@testitem "SentinelizedSource" begin
     using Random
     rng = MersenneTwister(42)
 
@@ -104,7 +104,7 @@ end
     content[fixed_length*2+sentinel_length+1:fixed_length*2+sentinel_length*2] = sentinel
 
     io = IOBuffer(content)
-    sio = SentinelIO(io, sentinel)
+    sio = SentinelizedSource(io, sentinel)
     @test bytesavailable(sio) <= fixed_length  # likely going to be length(sentinel), but always <= fixed_length
 
     # read < fixed_length bytes
@@ -196,7 +196,7 @@ end
     @test isempty(read(sio))
 end
 
-@testitem "SentinelIO lazy buffer" begin
+@testitem "SentinelizedSource lazy buffer" begin
     using Random
     rng = MersenneTwister(42)
 
@@ -208,7 +208,7 @@ end
     content[fixed_length+1:fixed_length+sentinel_length] = sentinel
 
     io = IOBuffer(content)
-    sio = SentinelIO(io, sentinel)
+    sio = SentinelizedSource(io, sentinel)
 
     # immediately check position, which should be 0, even though the buffer hasn't been filled yet
     @test position(sio) == 0
@@ -222,11 +222,11 @@ end
     @test position(sio) == 0
 end
 
-@testitem "SentinelIO strings" begin
+@testitem "SentinelizedSource strings" begin
     content = "Hello, Julia!"
     sentinel = SubString(content, 6:7)
     io = IOBuffer(content)
-    sio = SentinelIO(io, sentinel)
+    sio = SentinelizedSource(io, sentinel)
 
     @test read(sio, String) == "Hello"
     @test eof(sio)
@@ -262,10 +262,10 @@ end
     fixed_length = 256
     content[fixed_length+1:fixed_length+sentinel_length] = sentinel
 
-    # FixedLengthIO, skip only
+    # FixedLengthSource, skip only
     io = IOBuffer(content)
     skip_io = SkipOnly(io)
-    fixed_skip_only = FixedLengthIO(skip_io, fixed_length)
+    fixed_skip_only = FixedLengthSource(skip_io, fixed_length)
     
     n = 8
     skip(fixed_skip_only, n)
@@ -276,10 +276,10 @@ end
 
     @test_throws ErrorException seek(fixed_skip_only, n)
 
-    # FixedLengthIO, seek only
+    # FixedLengthSource, seek only
     seekstart(io)
     seek_io = SeekOnly(io)
-    fixed_seek_only = FixedLengthIO(seek_io, fixed_length)
+    fixed_seek_only = FixedLengthSource(seek_io, fixed_length)
     
     seek(fixed_seek_only, n)
     @test position(fixed_seek_only) == n
@@ -290,10 +290,10 @@ end
 
     @test_throws ErrorException skip(fixed_seek_only, -n)
 
-    # SentinelIO, skip only
+    # SentinelizedSource, skip only
     seekstart(io)
     skip_io = SkipOnly(io)
-    sentinel_skip_only = SentinelIO(skip_io, sentinel)
+    sentinel_skip_only = SentinelizedSource(skip_io, sentinel)
     
     n = 8
     skip(sentinel_skip_only, n)
@@ -304,10 +304,10 @@ end
 
     @test_throws ErrorException seek(sentinel_skip_only, n)
 
-    # SentinelIO, seek only
+    # SentinelizedSource, seek only
     seekstart(io)
     seek_io = SeekOnly(io)
-    sentinel_seek_only = SentinelIO(seek_io, sentinel)
+    sentinel_seek_only = SentinelizedSource(seek_io, sentinel)
     
     seek(sentinel_seek_only, n)
     @test position(sentinel_seek_only) == n
@@ -319,7 +319,7 @@ end
     @test_throws ErrorException skip(sentinel_seek_only, -n)
 end
 
-@testitem "FixedLengthIO large streams on 32-bit systems" begin
+@testitem "FixedLengthSource large streams on 32-bit systems" begin
     # use Zeros and InputBuffer to simulate a giant IOStream with out having to make a big file.
     using FillArrays: Zeros
     using InputBuffers: InputBuffer
@@ -327,55 +327,21 @@ end
     fixed_length = content_length - Int64(1)
     content = Zeros{UInt8}(content_length)
     io = InputBuffer(content)
-    fio = FixedLengthIO(io, fixed_length)
+    fio = FixedLengthSource(io, fixed_length)
     
     seekend(fio)
     @test position(fio) == fixed_length
     @test eof(fio)
 end
 
-@testitem "write" begin
-    content = collect(0x00:0x0f)
-    io = IOBuffer(content; read=true, write=true, append=true)
-
-    fixed_length = 17
-    fio = FixedLengthIO(io, fixed_length) # note: stream isn't long enough yet!
-
-    @test read(fio) == content
-
-    seekstart(fio)
-    @test write(fio, [0x10, 0x11]) == 2 # note: append flag above sets write poionter to the end of the stream, while seekstart 
-    @test position(fio) == 0 # write did not change the number of bytes read
-    @test position(io) == 0 # write MAY change the position of the read wrapped buffer, though, so be wary!
-
-    @test read(fio) == collect(0x00:0x10)
-    @test position(fio) == fixed_length
-    @test eof(fio)
-    @test !eof(io)
-
-    seekstart(io)
-    sentinel = [0x11, 0x12]
-    sio = SentinelIO(io, sentinel) # note: sentinel doesn't exist in the stream yet!
-
-    @test_throws EOFError read(sio) # no sentinel found
-    
-    seekstart(sio)
-    @test write(sio, [0x12, 0x13]) == 2 # complete the sentinel by appending
-    @test position(sio) == 0
-    
-    @test read(sio) == collect(0x00:0x10)
-    @test eof(sio)
-    @test !eof(io)
-end
-
 @testitem "readavailable" begin
     # readavailable is passed through to underlying stream
     # it's implementation-dependent, so just check to make sure it works and doesn't throw
     content = collect(0x00:0xff)
-    io = IOBuffer(content; read=true, write=true, append=true)
+    io = IOBuffer(content)
 
     fixed_length = 16
-    fio = FixedLengthIO(io, fixed_length)
+    fio = FixedLengthSource(io, fixed_length)
 
     r = readavailable(fio)
     @test length(r) <= fixed_length
@@ -383,7 +349,7 @@ end
 
     seekstart(io)
     sentinel = content[fixed_length+1:fixed_length+2]
-    sio = SentinelIO(io, sentinel)
+    sio = SentinelizedSource(io, sentinel)
 
     r = readavailable(sio)
     @test length(r) <= fixed_length

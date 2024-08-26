@@ -22,13 +22,13 @@ using TruncatedStreams
 
 io = IOBuffer(collect(0x00:0xff))
 
-fixed_io = FixedLengthIO(io, 10)  # pretend EOF occurs after the first 10 bytes are read
+fixed_io = FixedLengthSource(io, 10)  # pretend EOF occurs after the first 10 bytes are read
 @assert read(fixed_io) == collect(0x00:0x09)
 @assert eof(fixed_io) == true
 @assert eof(io) == false  # a lie, but a useful one!
 @assert peek(io) == 0x0a  # read exactly 10 bytes from io and not a byte more
 
-sentinel_io = SentinelIO(io, [0x10, 0x11])  # pretend EOF occurs as soon as the sentinel is read
+sentinel_io = SentinelizedSource(io, [0x10, 0x11])  # pretend EOF occurs as soon as the sentinel is read
 @assert read(sentinel_io) == collect(0x0a:0x0f)
 @assert eof(sentinel_io) == true
 @assert eof(io) == false
@@ -68,16 +68,16 @@ using Pkg; Pkg.install("TruncatedStreams")
 
 ## Use
 
-### `FixedLengthIO`
+### `FixedLengthSource`
 
-`FixedLengthIO` wraps an `IO` object and will read from it until a certain number of bytes is read, after which `FixedLengthIO` will act as if it has reached the end of the file:
+`FixedLengthSource` wraps an `IO` object and will read from it until a certain number of bytes is read, after which `FixedLengthSource` will act as if it has reached the end of the file:
 
 ```julia
 julia> using TruncatedStreams
 
 julia> io = IOBuffer(collect(0x00:0xff));
 
-julia> fio = FixedLengthIO(io, 10);  # Only read the next 10 bytes
+julia> fio = FixedLengthSource(io, 10);  # Only read the next 10 bytes
 
 julia> read(fio, UInt64)  # First 8 bytes
 0x0706050403020100
@@ -91,16 +91,16 @@ julia> eof(fio)  # It's a lie, but it's a useful one!
 true
 ```
 
-### `SentinelIO`
+### `SentinelizedSource`
 
-`SentinelIO` wraps an `IO` object and will read from in until a sentinel is found, after which `SentinelIO` will act as if it has reached the end of the file, discarding the sentinel:
+`SentinelizedSource` wraps an `IO` object and will read from in until a sentinel is found, after which `SentinelizedSource` will act as if it has reached the end of the file, discarding the sentinel:
 
 ```julia
 julia> using TruncatedStreams
 
 julia> io = IOBuffer(collect(0x00:0xff));
 
-julia> sio = SentinelIO(io, [0x10, 0x11, 0x12]);  # Only read until [0x10, 0x11, 0x12] is found
+julia> sio = SentinelizedSource(io, [0x10, 0x11, 0x12]);  # Only read until [0x10, 0x11, 0x12] is found
 
 julia> read(sio, UInt64)  # First 8 bytes
 0x0706050403020100

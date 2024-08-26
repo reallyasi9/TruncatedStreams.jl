@@ -1,14 +1,14 @@
 module TruncatedStreams
 
-export TruncatedIO
-export FixedLengthIO
-export SentinelIO
+export TruncatedSource
+export FixedLengthSource
+export SentinelizedSource
 
 @static if VERSION < v"1.7"
     include("compat.jl")
 end
 include("io.jl")
-include("fixedlengthio.jl")
-include("sentinelio.jl")
+include("fixedlength.jl")
+include("sentinel.jl")
 
 end

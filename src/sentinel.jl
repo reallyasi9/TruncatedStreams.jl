@@ -1,12 +1,12 @@
 """
-    SentinelIO(io, sentinel) <: TruncatedIO
+    SentinelizedSource(io, sentinel) <: TruncatedSource
 
 A truncated source that reads `io` until `sentinel` is found.
 
 ```jldoctest sentinelio_1
 julia> io = IOBuffer(collect(0x00:0xff));
 
-julia> sio = SentinelIO(io, [0x0a, 0x0b]);
+julia> sio = SentinelizedSource(io, [0x0a, 0x0b]);
 
 julia> read(sio)
 10-element Vector{UInt8}:
@@ -25,7 +25,7 @@ julia> eof(sio)
 true
 ```
 
-As soon as a read from a `SentinelIO` object would read the start of a byte sequence
+As soon as a read from a `SentinelizedSource` object would read the start of a byte sequence
 matching `sentinel` from the underlying IO stream, EOF is signalled, potentially leading to
 an `EOFError` being thrown.
 
@@ -43,36 +43,6 @@ julia> seek(sio, 8); read(sio)
 2-element Vector{UInt8}:
  0x08
  0x09
-```
-
-Writing to a `SentinelIO` object does not affect the length at which the stream is
-truncated, but may affect how many bytes are available to read.
-
-
-```jldoctest sentinelio_2
-julia> io = IOBuffer(collect(0x00:0x07); read=true, write=true); sio = SentinelIO(io, [0x06, 0x07]);
-
-julia> read(sio)
-6-element Vector{UInt8}:
- 0x00
- 0x01
- 0x02
- 0x03
- 0x04
- 0x05
-
-julia> write(sio, collect(0x01:0xff));
-
-julia> seekstart(sio);  # writing advances the IOBuffer's read pointer
-
-julia> read(sio)  # still the same output because the sentinel is still there
-6-element Vector{UInt8}:
- 0x00
- 0x01
- 0x02
- 0x03
- 0x04
- 0x05
 ```
 
 Detection of eof can be reset with the `Base.reseteof()` method. Use this if the sentinel
@@ -97,14 +67,14 @@ julia> read(sio)  # returns the first sentinel found and continues to read until
     throw `EOFError`.
 
 ```jldoctest sentinelio_3
-julia> io = IOBuffer(collect(0x00:0x07)); sio = SentinelIO(io, [0xff, 0xfe]);
+julia> io = IOBuffer(collect(0x00:0x07)); sio = SentinelizedSource(io, [0xff, 0xfe]);
 
 julia> read(sio)
 ERROR: EOFError: read end of file
 [...]
 ```
 """
-mutable struct SentinelIO{S<:IO} <: TruncatedIO
+mutable struct SentinelizedSource{S<:IO} <: TruncatedSource
     wrapped::S
     sentinel::Vector{UInt8}
     buffer::Vector{UInt8}
@@ -112,7 +82,7 @@ mutable struct SentinelIO{S<:IO} <: TruncatedIO
     skip_next_eof::Bool
     buffer_length_at_mark::Int
 
-    function SentinelIO(io::S, sentinel::AbstractVector{UInt8}) where {S<:IO}
+    function SentinelizedSource(io::S, sentinel::AbstractVector{UInt8}) where {S<:IO}
         sen = Vector{UInt8}(sentinel) # so I have a real Vector
         ns = length(sen)
         # generate the failure function for the Knuth–Morris–Pratt algorithm
@@ -138,12 +108,12 @@ mutable struct SentinelIO{S<:IO} <: TruncatedIO
     end
 end
 
-SentinelIO(io::IO, sentinel::AbstractString) = SentinelIO(io, codeunits(sentinel))
+SentinelizedSource(io::IO, sentinel::AbstractString) = SentinelizedSource(io, codeunits(sentinel))
 
-unwrap(s::SentinelIO) = s.wrapped
+unwrap(s::SentinelizedSource) = s.wrapped
 
 # count the number of bytes before a prefix match on the next sentinel
-function count_safe_bytes(s::SentinelIO, stop_early::Bool=false)
+function count_safe_bytes(s::SentinelizedSource, stop_early::Bool=false)
     nb = length(s.buffer)
 
     if eof(unwrap(s))
@@ -192,18 +162,18 @@ function count_safe_bytes(s::SentinelIO, stop_early::Bool=false)
     end
 end
 
-Base.bytesavailable(s::SentinelIO) = count_safe_bytes(s)
+Base.bytesavailable(s::SentinelizedSource) = count_safe_bytes(s)
 
-Base.eof(s::SentinelIO) = count_safe_bytes(s, true) == 0
+Base.eof(s::SentinelizedSource) = count_safe_bytes(s, true) == 0
 
 # fill the first n bytes of the buffer from the wrapped stream, overwriting what is there
-function fill_buffer(s::SentinelIO, n::Integer=length(s.sentinel))
+function fill_buffer(s::SentinelizedSource, n::Integer=length(s.sentinel))
     to_read = min(n, length(s.sentinel))
     nb = readbytes!(unwrap(s), s.buffer, to_read)
     return nb
 end
 
-function Base.unsafe_read(s::SentinelIO, p::Ptr{UInt8}, n::UInt)
+function Base.unsafe_read(s::SentinelizedSource, p::Ptr{UInt8}, n::UInt)
     # read available bytes, checking for sentinel each time
     to_read = n
     ptr = 0
@@ -244,9 +214,9 @@ function Base.unsafe_read(s::SentinelIO, p::Ptr{UInt8}, n::UInt)
     return nothing
 end
 
-Base.position(s::SentinelIO) = position(unwrap(s)) - length(s.buffer)  # lie about where we are in the stream
+Base.position(s::SentinelizedSource) = position(unwrap(s)) - length(s.buffer)  # lie about where we are in the stream
 
-function Base.seek(s::SentinelIO, n::Integer)
+function Base.seek(s::SentinelizedSource, n::Integer)
     # seeking backwards is only possible if the wrapped stream allows it.
     # seeking forwards is easier done as reading and dumping data.
     pos = max(n, 0)
@@ -262,7 +232,7 @@ function Base.seek(s::SentinelIO, n::Integer)
     else
         # drop remainder on the floor
         while bytes > 0 && !eof(s)
-            # if the number of bytes is too large, reading everything at once will cause a out-of-memory error, so read to EOF instead
+            # if the number of bytes is too large, reading everything at once will cause a out-of-memory error, so read byte-by-byte instead
             read(s, UInt8)
             bytes -= 1
         end
@@ -270,12 +240,12 @@ function Base.seek(s::SentinelIO, n::Integer)
     return s
 end
 
-function Base.seekend(s::SentinelIO)
-    write(devnull, s) # read until the end
+function Base.seekend(s::SentinelizedSource)
+    write(devnull, s) # read until sentinel is found
     return s
 end
 
-function Base.skip(s::SentinelIO, bytes::Integer)
+function Base.skip(s::SentinelizedSource, bytes::Integer)
     # skipping backwards is only possible if the wrapped stream allows it.
     # skipping forwards is easier done as reading and dumping data.
     if bytes <= 0
@@ -293,7 +263,7 @@ function Base.skip(s::SentinelIO, bytes::Integer)
     return s
 end
 
-function Base.mark(s::SentinelIO)
+function Base.mark(s::SentinelizedSource)
     pos = mark(unwrap(s))
     # lie about where we are in the stream
     # noting that the length of the buffer might change
@@ -302,7 +272,7 @@ function Base.mark(s::SentinelIO)
     return pos - nb
 end
 
-function Base.reset(s::SentinelIO)
+function Base.reset(s::SentinelizedSource)
     pos = reset(unwrap(s))
     # refill the buffer manually, which should be guaranteed to work, but check just in case
     seek(unwrap(s), pos - s.buffer_length_at_mark)
@@ -314,7 +284,7 @@ function Base.reset(s::SentinelIO)
     return pos - s.buffer_length_at_mark
 end
 
-function Base.reseteof(s::SentinelIO)
+function Base.reseteof(s::SentinelizedSource)
     Base.reseteof(unwrap(s))
     s.skip_next_eof = true
     return nothing
