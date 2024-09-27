@@ -206,7 +206,7 @@ end
 function Base.unsafe_read(s::SentinelIO, p::Ptr{UInt8}, n::UInt)
     # read available bytes, checking for sentinel each time
     to_read = n
-    ptr = 0
+    ptr = UInt64(0)
     available = bytesavailable(s)
     while to_read > 0 && available > 0
         this_read = min(to_read, available)
