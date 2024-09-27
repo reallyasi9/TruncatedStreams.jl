@@ -418,5 +418,27 @@ end
     seekend(sio)
     @test_throws EOFError peek(sio)
 end
+      
+@testitem "read!" begin
+    # read! is passed through to underlying stream using unsafe_read
+    content = collect(0x00:0xff)
+    path = tempname()
+    write(path, content)
+    open(path) do io
+        fixed_length = 16
+        fio = FixedLengthIO(io, fixed_length)
+        out = zeros(UInt8, fixed_length)
+        read!(fio, out)
+        @test out == content[1:fixed_length]
+    end
+    open(path) do io
+        fixed_length = 16
+        sentinel = content[fixed_length+1:fixed_length+2]
+        sio = SentinelIO(io, sentinel)
+        out = zeros(UInt8, fixed_length)
+        read!(sio, out)
+        @test out == content[1:fixed_length]
+    end
+end
 
 @run_package_tests verbose = true
