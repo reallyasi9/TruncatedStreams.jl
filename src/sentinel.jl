@@ -177,7 +177,7 @@ end
 function Base.unsafe_read(s::SentinelizedSource, p::Ptr{UInt8}, n::UInt)
     # read available bytes, checking for sentinel each time
     to_read = n
-    ptr = 0
+    ptr = UInt64(0)
     available = bytesavailable(s)
     while to_read > 0 && available > 0
         this_read = min(to_read, available)
@@ -306,4 +306,17 @@ function Base.reseteof(s::SentinelizedSource)
     Base.reseteof(unwrap(s))
     s.skip_next_eof = true
     return nothing
+end
+
+function Base.peek(s::SentinelizedSource, T::Type = UInt8)
+    if sizeof(T) > length(s.sentinel)
+        throw(ErrorException("unable to peek more bytes than sentinel length ($(sizeof(T)) > $(length(s.sentinel)))"))
+    end
+    ba = bytesavailable(s)
+    if ba == 0
+        throw(EOFError())
+    elseif sizeof(T) > bytesavailable(s)
+        @warn "potentially peeking into sentinel"
+    end
+    return only(reinterpret(T, @view(s.buffer[1:sizeof(T)])))
 end

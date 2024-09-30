@@ -139,3 +139,10 @@ function Base.reset(s::FixedLengthSource)
     seek(s, pos) # seeks the underlying stream as well, but that should be a noop
     return pos
 end
+
+function Base.peek(s::FixedLengthSource, T::Type = UInt8)
+    if sizeof(T) > bytesavailable(s)
+        throw(EOFError())
+    end
+    return peek(unwrap(s), T)
+end

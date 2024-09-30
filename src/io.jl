@@ -68,3 +68,6 @@ end
 
 # allows bytesavailable to signal how much can be read from the stream at a time
 Base.readavailable(s::TruncatedSource) = read(s, bytesavailable(s))
+
+# n-ary peek
+Base.peek(s::TruncatedSource, T::Type) = return peek(unwrap(s), T)
