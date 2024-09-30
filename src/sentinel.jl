@@ -4,7 +4,7 @@
 A truncated source that reads `io` until `sentinel` is found.
 
 ```jldoctest sentinelio_1
-julia> io = IOBuffer(collect(0x00:0xff));
+julia> io = IOBuffer(repeat(collect(0x00:0x0f), 2));
 
 julia> sio = SentinelizedSource(io, [0x0a, 0x0b]);
 
@@ -49,18 +49,27 @@ julia> seek(sio, 8); read(sio)
 Detection of eof can be reset with the `Base.reseteof()` method. Use this if the sentinel
 that was read is determined upon further inspection to be bogus.
 
-```jldoctest sentinelio_2
+```jldoctest sentinelio_1
 julia> Base.reseteof(sio)  # that last sentinel was fake, so reset EOF and read again
 
 julia> read(sio)  # returns the first sentinel found and continues to read until the next one is found
-7-element Vector{UInt8}:
- 0x06
- 0x07
+16-element Vector{UInt8}:
+ 0x0a
+ 0x0b
+ 0x0c
+ 0x0d
+ 0x0e
+ 0x0f
+ 0x00
  0x01
  0x02
  0x03
  0x04
  0x05
+ 0x06
+ 0x07
+ 0x08
+ 0x09
 ```
 
 !!! note

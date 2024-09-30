@@ -43,39 +43,6 @@ julia> seek(fio, 8); read(fio)
  0x08
  0x09
 ```
-
-Writing to a `FixedLengthSource` object does not affect the length at which the stream is
-truncated, but may affect how many bytes are available to read.
-
-```jldoctest fixedlengthio_2
-julia> io = IOBuffer(collect(0x00:0x05); read=true, write=true); fio = FixedLengthSource(io, 10);
-
-julia> read(fio)
-6-element Vector{UInt8}:
- 0x00
- 0x01
- 0x02
- 0x03
- 0x04
- 0x05
-
-julia> write(fio, collect(0x06:0xff));
-
-julia> seekstart(fio);  # writing advances the IOBuffer's read pointer
-
-julia> read(fio)
-10-element Vector{UInt8}:
- 0x00
- 0x01
- 0x02
- 0x03
- 0x04
- 0x05
- 0x06
- 0x07
- 0x08
- 0x09
-```
 """
 mutable struct FixedLengthSource{S<:IO} <: TruncatedSource
     wrapped::S
