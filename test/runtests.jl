@@ -334,11 +334,29 @@ end
     @test eof(fio)
 end
 
+@testitem "write" begin
+    io = IOBuffer(collect(0x00:0x0f); read=true, write=true, append=true)
+    fixed_length = 1
+    fio = FixedLengthSource(io, fixed_length) # note: stream isn't long enough yet!
+    seekstart(fio)
+
+    @test_throws ErrorException write(fio, 0x10)
+    @test_throws ErrorException print(fio, "a")
+    @test_throws MethodError unsafe_write(fio, [0x01], 1)
+
+    sio = SentinelizedSource(io, [0x0e, 0x0f])
+    seekstart(sio)
+
+    @test_throws ErrorException write(sio, 0x10)
+    @test_throws ErrorException print(sio, "a")
+    @test_throws MethodError unsafe_write(sio, [0x01], 1)
+end
+
 @testitem "readavailable" begin
     # readavailable is passed through to underlying stream
     # it's implementation-dependent, so just check to make sure it works and doesn't throw
     content = collect(0x00:0xff)
-    io = IOBuffer(content)
+    io = IOBuffer(content; read=true, write=true, append=true)
 
     fixed_length = 16
     fio = FixedLengthSource(io, fixed_length)
@@ -354,6 +372,28 @@ end
     r = readavailable(sio)
     @test length(r) <= fixed_length
     @test r == first(content, length(r))
+end
+
+@testitem "read!" begin
+    # read! is passed through to underlying stream using unsafe_read
+    content = collect(0x00:0xff)
+    path = tempname()
+    write(path, content)
+    open(path) do io
+        fixed_length = 16
+        fio = FixedLengthSource(io, fixed_length)
+        out = zeros(UInt8, fixed_length)
+        read!(fio, out)
+        @test out == content[1:fixed_length]
+    end
+    open(path) do io
+        fixed_length = 16
+        sentinel = content[fixed_length+1:fixed_length+2]
+        sio = SentinelizedSource(io, sentinel)
+        out = zeros(UInt8, fixed_length)
+        read!(sio, out)
+        @test out == content[1:fixed_length]
+    end
 end
 
 @run_package_tests verbose = true

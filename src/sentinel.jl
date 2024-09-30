@@ -35,8 +35,9 @@ ERROR: EOFError: read end of file
 [...]
 ```
 
-Seeking does not affect reading of the sentinel, but may affect how many bytes are available
-to read.
+Seeking works as if the stream ends at the first byte of the sentinel: backwards seeking
+will always succeed if the wrapped stream allows it, and forward seeking will only seek up
+to the sentinel. Note that forward seeking will consume bytes from the wrapped stream.
 
 ```jldoctest sentinelio_1
 julia> seek(sio, 8); read(sio)
@@ -231,17 +232,26 @@ function Base.seek(s::SentinelizedSource, n::Integer)
         end
     else
         # drop remainder on the floor
+        # if the number of bytes is too large, reading everything at once will cause a out-of-memory error,
+        # and reading into a new array every read wastes time on allocations,
+        # so read into a temporary buffer that is allocated once.
+        buf_length = min(2^16, bytes)
+        buf = Vector{UInt8}(undef, buf_length)
         while bytes > 0 && !eof(s)
-            # if the number of bytes is too large, reading everything at once will cause a out-of-memory error, so read byte-by-byte instead
-            read(s, UInt8)
-            bytes -= 1
+            nr = readbytes!(s, buf, min(buf_length, bytes))
+            bytes -= nr
         end
     end
     return s
 end
 
 function Base.seekend(s::SentinelizedSource)
-    write(devnull, s) # read until sentinel is found
+    # use a temporary buffer to read to avoid costly allocations
+    buf_length = 2^16
+    buf = Vector{UInt8}(undef, buf_length)
+    while !eof(s) # read until sentinel is found
+        readbytes!(s, buf)
+    end
     return s
 end
 
@@ -258,7 +268,15 @@ function Base.skip(s::SentinelizedSource, bytes::Integer)
         end
     else
         # drop remainder on the floor
-        read(s, bytes)
+        # if the number of bytes is too large, reading everything at once will cause a out-of-memory error,
+        # and reading into a new array every read wastes time on allocations,
+        # so read into a temporary buffer that is allocated once.
+        buf_length = min(bytes, 2^16)
+        buf = Vector{UInt8}(undef, buf_length)
+        while bytes > 0 && !eof(s)
+            nr = readbytes!(s, buf, min(buf_length, bytes))
+            bytes -= nr
+        end
     end
     return s
 end
