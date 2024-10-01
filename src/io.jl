@@ -1,37 +1,40 @@
 """
-    TruncatedIO <: IO
+    TruncatedSource <: IO
 
-Wraps a streaming IO object that reads only as much as should be read and not a byte more.
+Wrap an IO object to read only as much as should be read and not a byte more.
 
-Objects inheriting from this abstract type pass along all IO methods to the wrapped stream
-except for `bytesavailable(io)` and `eof(io)`. Inherited types _must_ implement:
-- `TruncatedStreams.unwrap(::TruncatedIO)::IO`: return the wrapped IO stream.
-- `Base.eof(::TruncatedIO)::Bool`: report whether the stream cannot produce any more bytes.
+Objects inheriting from this abstract type pass along all read-oriented IO methods to the wrapped
+stream except for `bytesavailable(io)` and `eof(io)`. Inherited types _must_ implement:
+- `TruncatedStreams.unwrap(::TruncatedSource)::IO`: return the wrapped IO stream.
+- `Base.eof(::TruncatedSource)::Bool`: report whether the stream cannot produce any more bytes.
 
-In order to implement truncation, some number of these methods will likely need to be
-implemented:
-- `Base.unsafe_read(::TruncatedIO, p::Ptr{UInt8}, n::UInt)::Nothing`: copy `n` bytes from the stream into memory pointed to by `p`.
-- `Base.read(::TruncatedIO, T::Type)::T`: read and return an object of type `T` from the stream.
-- `Base.bytesavailable(::TruncatedIO)::Int`: report the number of bytes available to read from the stream until EOF or a buffer refill.
-- `Base.seek(::TruncatedIO, p::Integer)` and `Base.seekend(::TruncatedIO)`: seek stream to position `p` or end of stream.
-- `Base.reset(::TruncatedIO)`: reset a marked stream to the saved position.
-- `Base.reseteof(::TruncatedIO)::Nothing`: reset EOF status.
+In order to implement truncation, some number of these methods will likely need to be implemented:
+- `Base.unsafe_read(::TruncatedSource, p::Ptr{UInt8}, n::UInt)::Nothing`: copy `n` bytes from the
+    stream into memory pointed to by `p`.
+- `Base.read(::TruncatedSource, T::Type)::T`: read and return an object of type `T` from the stream.
+- `Base.bytesavailable(::TruncatedSource)::Int`: report the number of bytes available to read from
+    the stream until EOF or a buffer refill is necessary.
+- `Base.seek(::TruncatedSource, p::Integer)` and `Base.seekend(::TruncatedSource)`: seek stream to
+    position `p` or end of stream.
+- `Base.reset(::TruncatedSource)`: reset a marked stream to the saved position.
+- `Base.reseteof(::TruncatedSource)::Nothing`: reset EOF status.
+- `Base.peek(::TruncatedSource[, T::Type])::T`: read and return the next object of type `T` from the
+    stream, but leave the bytes available in the stream for the next read.
 
-Note that writing to the stream does not affect truncation.
-
-The following methods must be implemented by the wrapped IO type for all the functionality
-of the truncated streams to work at all:
+The following methods _must_ be implemented by the wrapped IO type for all the functionality of the
+    `TruncatedSource` to work at all:
 - `Base.eof(::IO)::Bool`
 - `Base.read(::IO, ::Type{UInt8})::UInt8`
 
-The wrapped stream also must implement `Base.seek` and `Base.skip` for seeking and skipping
-of the truncated stream to work properly. Additionally, `Base.position` needs to be
-implemented for some instances of `Base.seek` to work properly.
+The wrapped stream also must implement `Base.seek` and `Base.skip` for seeking and skipping of the
+truncated stream to work properly. Additionally, `Base.position` needs to be implemented for some
+implementations of `Base.seek` to work properly.
 """
-abstract type TruncatedIO <: IO end
+abstract type TruncatedSource <: IO end
+
 
 """
-    unwrap(s<:TruncatedIO) -> IO
+    unwrap(s<:TruncatedSource{T}) -> T where {T <: IO}
 
 Return the wrapped source.
 """
@@ -43,37 +46,28 @@ for func in (
     :unlock,
     :isopen,
     :close,
-    :flush,
     :position,
     :mark,
     :unmark,
     :reset,
     :ismarked,
     :isreadable,
-    :iswritable,
 )
-    @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
+    @eval Base.$func(s::TruncatedSource) = Base.$func(unwrap(s))
 end
 
-# newer functions for half-duplex close
-@static if VERSION >= v"1.8"
-    for func in (:closewrite,)
-        @eval Base.$func(s::TruncatedIO) = Base.$func(unwrap(s))
-    end
-end
+# always report unwritable
+Base.iswritable(::TruncatedSource) = false
 
 # required to override byte-level reading of objects by delegating to unsafe_read
-function Base.read(s::TruncatedIO, ::Type{UInt8})
+function Base.read(s::TruncatedSource, ::Type{UInt8})
     r = Ref{UInt8}()
     unsafe_read(s, r, 1)
     return r[]
 end
 
 # allows bytesavailable to signal how much can be read from the stream at a time
-Base.readavailable(s::TruncatedIO) = read(s, bytesavailable(s))
-
-# required to allow passthrough of byte-level writing
-Base.write(s::TruncatedIO, x::UInt8) = return write(unwrap(s), x)
+Base.readavailable(s::TruncatedSource) = read(s, bytesavailable(s))
 
 # n-ary peek
-Base.peek(s::TruncatedIO, T::Type) = return peek(unwrap(s), T)
+Base.peek(s::TruncatedSource, T::Type) = return peek(unwrap(s), T)
