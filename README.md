@@ -13,7 +13,7 @@
 TruncatedStreams provides types that meet the following four criteria:
 
 1. Inherit from `Base.IO`;
-2. Transparently pass all basic IO methods through to a wrapped `IO` object, except...
+2. Transparently pass all basic IO reading methods through to a wrapped `IO` object, except...
 3. Lie about `eof`, and...
 4. Do not read a single byte more from the wrapped `IO` object than what is necessary to determine EOF.
 
@@ -56,7 +56,7 @@ This may seem like a contrived situation, but consider an IO object representing
 2. The file either starts with a header that tells you how many bytes long the file is or ends with a sentinel so you know when to stop reading.
 3. You do not want to (or cannot) read the entire file into memory before parsing.
 
-Enter `TruncatedStreams`. This package exports types that inherit from `Base.IO` and wrap other `Base.IO` objects with one purpose in mind: to lie about EOF. This means you can wrap your IO object and blindly read from it until it signals EOF, just like you would any other IO object. And, if the wrapped IO object supports it, you can write to the stream, seek to a position, skip bytes, mark and reset positions, or do whatever basic IO operation you can think of and not have to worry about whether you remembered to add or subtract the right number of bytes from your running tally, or whether your buffered read accidentally captured half of the sentinel at the end.
+Enter `TruncatedStreams`. This package exports types that inherit from `Base.IO` and wrap other `Base.IO` objects with one purpose in mind: to lie about EOF. This means you can wrap your IO object and blindly read from it until it signals EOF, just like you would any other IO object. And, if the wrapped IO object supports it, you can seek to a position, skip bytes, mark and reset positions, or do whatever basic IO read operation you can think of and not have to worry about whether you remembered to add or subtract the right number of bytes from your running tally, or whether your buffered read accidentally captured half of the sentinel at the end.
 
 Abstraction is ignorance, and ignorance is bliss.
 
@@ -79,21 +79,21 @@ julia> io = IOBuffer(collect(0x00:0xff));
 
 julia> fio = FixedLengthSource(io, 10);  # Only read the next 10 bytes
 
-julia> read(fio, UInt64)  # First 8 bytes
+julia> read(fio, UInt64)  # First 8 bytes, reads like a normal IO object
 0x0706050403020100
 
-julia> read(fio)  # Everything else
+julia> read(fio)  # When you ask for everything else, it stops once the 10th byte is read
 2-element Vector{UInt8}:
  0x08
  0x09
 
-julia> eof(fio)  # It's a lie, but it's a useful one!
+julia> eof(fio)  # EOF is a lie, but a useful one!
 true
 ```
 
 ### `SentinelizedSource`
 
-`SentinelizedSource` wraps an `IO` object and will read from in until a sentinel is found, after which `SentinelizedSource` will act as if it has reached the end of the file, discarding the sentinel:
+`SentinelizedSource` wraps an `IO` object and will read from in until a sentinel is found, after which `SentinelizedSource` will act as if it has reached the end of the file, **discarding the sentinel**:
 
 ```julia
 julia> using TruncatedStreams
@@ -102,10 +102,10 @@ julia> io = IOBuffer(collect(0x00:0xff));
 
 julia> sio = SentinelizedSource(io, [0x10, 0x11, 0x12]);  # Only read until [0x10, 0x11, 0x12] is found
 
-julia> read(sio, UInt64)  # First 8 bytes
+julia> read(sio, UInt64)  # First 8 bytes, reads like a normal IO object
 0x0706050403020100
 
-julia> read(sio)  # Everything else
+julia> read(sio)  # When you ask for everything else, it reads up to the byte before the Sentinel
 8-element Vector{UInt8}:
  0x08
  0x09
@@ -116,7 +116,7 @@ julia> read(sio)  # Everything else
  0x0e
  0x0f
 
-julia> eof(sio)  # It's a lie, but it's a useful one!
+julia> eof(sio)  # EOF is a lie, but a useful one!
 true
 
 julia> peek(io)  # Note that the sentinel is no longer in the wrapped IO
