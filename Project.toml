@@ -1,12 +1,12 @@
 name = "TruncatedStreams"
 uuid = "a94d6aec-2c5c-43a3-8874-9c6fe372d212"
 authors = ["Phil Killewald <reallyasi9@users.noreply.github.com> and contributors"]
-version = "1.1.0"
+version = "2.0.0"
 
 [deps]
 
 [compat]
-julia = "1.6.7"
+julia = "1.10.5"
 
 [extras]
 FillArrays = "1a297f60-69ca-5386-bcde-b61e274b549b"

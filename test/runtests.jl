@@ -320,18 +320,21 @@ end
 end
 
 @testitem "FixedLengthSource large streams on 32-bit systems" begin
-    # use Zeros and InputBuffer to simulate a giant IOStream with out having to make a big file.
-    using FillArrays: Zeros
-    using InputBuffers: InputBuffer
-    content_length = Int64(1)<<32 + Int64(2)
-    fixed_length = content_length - Int64(1)
-    content = Zeros{UInt8}(content_length)
-    io = InputBuffer(content)
-    fio = FixedLengthSource(io, fixed_length)
-    
-    seekend(fio)
-    @test position(fio) == fixed_length
-    @test eof(fio)
+
+    if Int === Int32
+        # use Zeros and InputBuffer to simulate a giant IOStream with out having to make a big file.
+        using FillArrays: Zeros
+        using InputBuffers: InputBuffer
+        content_length = Int64(1)<<32 + Int64(2)
+        fixed_length = content_length - Int64(1)
+        content = Zeros{UInt8}(content_length)
+        io = InputBuffer(content)
+        fio = FixedLengthSource(io, fixed_length)
+        
+        seekend(fio)
+        @test position(fio) == fixed_length
+        @test eof(fio)
+    end
 end
 
 @testitem "write" begin
